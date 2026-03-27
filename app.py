@@ -283,16 +283,21 @@ st.markdown("""
         color: var(--ux-accent);
     }
 
-    /* Hero vuoto — illustrazione tipo Visily: pulita, IA / struttura */
+    /* Hero vuoto — illustrazione + testo nella stessa colonna centrata */
     .ux-empty-hero {
-        text-align: center;
         padding: 1rem 1rem 3.5rem;
-        max-width: 640px;
         margin: 0 auto;
     }
-    .ux-empty-illustration {
-        margin: 0 auto 2rem;
+    .ux-empty-stack {
         max-width: 460px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    .ux-empty-illustration {
+        width: 100%;
+        margin: 0 0 1.5rem 0;
         animation: uxHeroFloat 5s ease-in-out infinite;
     }
     @keyframes uxHeroFloat {
@@ -303,12 +308,19 @@ st.markdown("""
         color: #4b5563;
         font-size: 1.05rem;
         line-height: 1.7;
-        margin: 0 auto;
-        max-width: 520px;
+        margin: 0;
+        width: 100%;
+        max-width: 460px;
         text-align: center;
+        box-sizing: border-box;
     }
 
     /* SVG interno */
+    .ux-illu-svg {
+        width: 100%;
+        height: auto;
+        display: block;
+    }
     .ux-illu-svg .ux-line {
         fill: none;
         stroke: #d1d5db;
@@ -2414,6 +2426,7 @@ if st.session_state.results is not None:
 else:
     st.markdown("""
 <div class="ux-empty-hero">
+  <div class="ux-empty-stack">
   <div class="ux-empty-illustration">
     <svg class="ux-illu-svg" viewBox="0 0 440 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <rect class="ux-browser" x="24" y="28" width="392" height="168" rx="14"/>
@@ -2452,7 +2465,8 @@ else:
     </svg>
   </div>
   <p class="ux-empty-hint">
-    Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega :) 😊 🙂
+    Ciao! 👋 Mappiamo insieme! Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega. 😊
   </p>
+  </div>
 </div>
     """, unsafe_allow_html=True)
