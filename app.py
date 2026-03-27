@@ -299,62 +299,13 @@ st.markdown("""
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-10px); }
     }
-    .ux-empty-hero h2 {
-        color: #111827;
-        font-weight: 800;
-        font-size: 1.65rem;
-        letter-spacing: -0.5px;
-        margin: 0 0 0.5rem 0;
-        line-height: 1.25;
-    }
-    .ux-empty-hero .ux-accent-bar {
-        width: 48px;
-        height: 4px;
-        background: linear-gradient(90deg, var(--ux-accent), #ffb38a);
-        border-radius: 4px;
-        margin: 0 auto 1.25rem;
-        animation: uxBarShine 3s ease-in-out infinite;
-    }
-    @keyframes uxBarShine {
-        0%, 100% { opacity: 1; transform: scaleX(1); }
-        50% { opacity: 0.85; transform: scaleX(1.08); }
-    }
-    .ux-empty-lead {
-        color: #6b7280;
-        font-size: 1rem;
-        line-height: 1.65;
-        margin: 0 auto 1.5rem;
-        max-width: 420px;
-    }
-    .ux-empty-lead strong { color: #374151; }
-    .ux-empty-steps {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 0.65rem 1rem;
-        font-size: 0.88rem;
-        color: #6b7280;
-    }
-    .ux-step {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        background: #f9fafb;
-        border: 1px solid #eaedf0;
-        border-radius: 999px;
-        padding: 0.35rem 0.85rem;
-    }
-    .ux-step-num {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 22px;
-        height: 22px;
-        border-radius: 50%;
-        background: var(--ux-accent-soft);
-        color: var(--ux-accent);
-        font-weight: 700;
-        font-size: 0.72rem;
+    .ux-empty-hint {
+        color: #4b5563;
+        font-size: 1.05rem;
+        line-height: 1.7;
+        margin: 0 auto;
+        max-width: 520px;
+        text-align: center;
     }
 
     /* SVG interno */
@@ -2500,20 +2451,8 @@ else:
       <line x1="320" y1="106" x2="376" y2="106" stroke="#e5e7eb" stroke-width="1.5" stroke-linecap="round"/>
     </svg>
   </div>
-  <div class="ux-accent-bar"></div>
-  <h2>Disegna la struttura del tuo sito</h2>
-  <p class="ux-empty-lead">
-    Come in un <strong>blueprint</strong> di information architecture: mappa navigazione, contenuti e flussi —
-    con lo stesso spirito strutturale che distingue il <strong>UX architect</strong> dal solo design visivo.
-  </p>
-  <div class="ux-empty-steps">
-    <span class="ux-step"><span class="ux-step-num">1</span> Sidebar → URL o .json</span>
-    <span class="ux-step"><span class="ux-step-num">2</span> Crawl o importa</span>
-    <span class="ux-step"><span class="ux-step-num">3</span> Sitemap &amp; diagramma</span>
-  </div>
-  <p style="font-size:0.8rem;color:#9ca3af;margin-top:2rem;line-height:1.5">
-    Stile illustrazione ispirato al linguaggio visivo dei tool di design moderni
-    (es. <a href="https://www.visily.ai/blog/ux-architect-designer/" target="_blank" rel="noopener noreferrer" style="color:#FF6B35;font-weight:600;text-decoration:none;">Visily — UX Architect vs Designer</a>).
+  <p class="ux-empty-hint">
+    Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega :) 😊 🙂
   </p>
 </div>
     """, unsafe_allow_html=True)
