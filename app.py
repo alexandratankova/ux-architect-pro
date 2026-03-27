@@ -37,14 +37,14 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 # Categorie emergenti dall'analisi (URL + menu), colori assegnati a posteriori
 # ─────────────────────────────────────────────
-# Sfondi scuri: testo bianco in diagramma Mermaid e badge (>= ~4.5:1 WCAG AA).
+# Pastelli distinti; testo nel diagramma e sui badge via _contrast_label_hex (nero o bianco).
 CATEGORY_COLOR_PALETTE = [
-    "#0F4C81", "#1B5E3A", "#5B1E7A", "#8B1538", "#7A4200", "#006B75",
-    "#4A3728", "#1E4D6B", "#3A2F7A", "#6D1F5C", "#2F5233", "#7A4A00",
-    "#0F3D3D", "#4A148C", "#5C1A1A", "#1A365D",
+    "#B8D4EC", "#B5E8D1", "#DDD6FE", "#FBCFE8", "#F5E0A8", "#FED7AA",
+    "#BFDBFE", "#A7F3D0", "#FECDD3", "#C4B5FD", "#99F6E4", "#E9D5FF",
+    "#D9F99D", "#FBC4A2", "#A5D8FF", "#CCD5E0",
 ]
-# Colore se la categoria non è in mappa (sfondo scuro, stesso uso del diagramma / badge).
-CATEGORY_COLOR_FALLBACK = "#374151"
+# Grigio‑lavanda chiaro se la categoria non è in mappa.
+CATEGORY_COLOR_FALLBACK = "#E2E8F0"
 # Fallback quando non si ricava una sezione dal sito (UI / export in italiano)
 CAT_FALLBACK = "Altro"
 
@@ -58,19 +58,28 @@ def category_palette_map(categories: list[str]) -> dict[str, str]:
     }
 
 
+def _contrast_label_hex(hex_color: str) -> str:
+    """#111827 su sfondi chiari, #ffffff su sfondi scuri (diagramma, badge)."""
+    h = (hex_color or "").strip().lstrip("#")
+    if len(h) != 6:
+        return "#111827"
+    try:
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
+    except ValueError:
+        return "#111827"
+    lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    return "#111827" if lum > 0.62 else "#ffffff"
+
+
 def _excel_font_on_fill(hex_no_hash: str) -> str:
     """Testo nero o bianco per leggibilità su sfondo colore (foglio Statistiche)."""
     h = (hex_no_hash or "").lstrip("#")
     if len(h) != 6:
         return "FFFFFF"
-    try:
-        r = int(h[0:2], 16)
-        g = int(h[2:4], 16)
-        b = int(h[4:6], 16)
-        lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-        return "000000" if lum > 0.62 else "FFFFFF"
-    except ValueError:
-        return "FFFFFF"
+    fg = _contrast_label_hex("#" + h)
+    return "FFFFFF" if fg == "#ffffff" else "000000"
 
 # ─────────────────────────────────────────────
 # Styling
@@ -138,7 +147,6 @@ st.markdown("""
         border-radius: 20px;
         font-size: 0.75rem;
         font-weight: 600;
-        color: #ffffff;
         letter-spacing: 0.2px;
     }
 
@@ -249,13 +257,13 @@ st.markdown("""
         margin: 0 0 0.35rem 0;
     }
 
-    /* CTA nero; arancione acceso solo per accenti (slider, link, ecc.) */
+    /* CTA nero; accenti neutri ardesia (slider, link) */
     :root {
         --ux-cta: #111827;
         --ux-cta-hover: #27272a;
-        --ux-accent: #ff6b35;
-        --ux-accent-hover: #e85a28;
-        --ux-accent-soft: rgba(255, 107, 53, 0.16);
+        --ux-accent: #475569;
+        --ux-accent-hover: #334155;
+        --ux-accent-soft: rgba(71, 85, 105, 0.12);
     }
 
     div[data-testid="stSidebar"] button[kind="primary"],
@@ -1351,8 +1359,9 @@ def build_mermaid(results: list[dict], base_url: str,
         cls = f"cat{i}"
         cat_class[cat] = cls
         color = palette[cat]
+        lbl = _contrast_label_hex(color)
         style_defs.append(
-            f"    classDef {cls} fill:{color},stroke:#0f172a,stroke-width:1.5px,color:#ffffff"
+            f"    classDef {cls} fill:{color},stroke:#64748b,stroke-width:1.2px,color:{lbl}"
         )
 
     root_id = make_id("ROOT")
@@ -1404,8 +1413,8 @@ def build_mermaid(results: list[dict], base_url: str,
             lines.append(f'    {section_id}["{safe_name}"]')
             lines.append(f"    {root_id} --> {section_id}")
             style_defs.append(
-                f"    style {section_id} fill:#dbeafe,stroke:#1e40af,"
-                f"stroke-width:2px,color:#0c4a6e,font-weight:bold"
+                f"    style {section_id} fill:#EDE9FE,stroke:#78716C,"
+                f"stroke-width:2px,color:#111827,font-weight:bold"
             )
             for item in nav_items:
                 _add_menu_node(item, section_id)
@@ -1467,13 +1476,13 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
         download_btn_css = """
         #dl-btn {
             position: fixed; top: 12px; right: 16px; z-index: 100;
-            background: #ff6b35; color: #fff; border: none;
+            background: #111827; color: #fff; border: none;
             padding: 8px 18px; border-radius: 8px; cursor: pointer;
             font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
             transition: background .2s, filter .2s;
         }
-        #dl-btn:hover { background: #e85a28; filter: brightness(1.05); }
+        #dl-btn:hover { background: #27272a; filter: brightness(1.05); }
         """
         download_btn_html = '<button type="button" id="dl-btn">Scarica JPEG</button>'
         download_btn_js = """
@@ -1604,11 +1613,11 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
             startOnLoad: true,
             theme: 'neutral',
             themeVariables: {{
-                primaryColor: '#e5e7eb',
-                primaryTextColor: '#0f172a',
-                primaryBorderColor: '#334155',
-                lineColor: '#475569',
-                secondaryColor: '#f1f5f9',
+                primaryColor: '#f1f5f9',
+                primaryTextColor: '#111827',
+                primaryBorderColor: '#94a3b8',
+                lineColor: '#64748b',
+                secondaryColor: '#e2e8f0',
                 tertiaryColor: '#f8fafc',
             }},
             flowchart: {{ useMaxWidth: false, htmlLabels: true, curve: 'basis' }},
@@ -2355,7 +2364,7 @@ if st.session_state.results is not None:
             '<div class="section-subtitle">Struttura del sito con layout orizzontale. '
             "Usa <strong>+ / − / Reset</strong> in alto al centro per lo zoom, oppure "
             "<strong>Ctrl + rotellina</strong> sul diagramma. Scroll nel riquadro per spostarti. "
-            "Il bottone arancione in alto a destra scarica JPEG.</div>",
+            "Il pulsante in alto a destra scarica il JPEG.</div>",
             unsafe_allow_html=True,
         )
 
@@ -2403,8 +2412,8 @@ if st.session_state.results is not None:
                             st.markdown(f"  - {h2}")
                 with col_b:
                     st.markdown(
-                        f'<span class="category-badge" style="background:{cat_color}">'
-                        f'{cat}</span>',
+                        f'<span class="category-badge" style="background:{cat_color};'
+                        f'color:{_contrast_label_hex(cat_color)}">{cat}</span>',
                         unsafe_allow_html=True,
                     )
                     st.metric("Word Count", page.get("word_count", 0))

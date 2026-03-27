@@ -1,6 +1,6 @@
 [theme]
-# Arancione accento (slider e widget Streamlit); i pulsanti primari sono neri via CSS in app
-primaryColor = "#ff6b35"
+# Ardesia per slider/widget Streamlit; pulsanti primari neri via CSS in app
+primaryColor = "#475569"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f9fafb"
 textColor = "#111827"
