@@ -107,6 +107,26 @@ Le categorie riconosciute sono:
 
 ## Visualizzazioni
 
+Dopo il crawl, i risultati sono organizzati in **schede nell'ordine seguente** (allineato al flusso di lavoro IA → vista grafica → dettaglio → numeri → export):
+
+1. **Sitemap** — albero testuale dell'Information Architecture  
+2. **Diagramma** — mappa Mermaid interattiva  
+3. **Tabella** — elenco pagine con filtri  
+4. **Statistiche** — distribuzione e metriche per categoria  
+5. **Esporta** — download Excel, Mermaid, condivisione rapporto
+
+### Sitemap / Information Architecture (prima scheda)
+
+Nel tab **Sitemap** la struttura e introdotta con il titolo **Information Architecture**. Ogni navigazione estratta ha il **suo blocco testuale** con l'etichetta professionale (es. Main Navigation (Header)) e l'albero delle voci come le vedrebbe un utente, con gerarchia parent-child; le pagine non coperte da nessuna navigazione compaiono in una sezione **Altre pagine**. Se non si riesce a estrarre navigazioni, la vista torna alla gerarchia basata sui percorsi URL.
+
+### Diagramma visuale (seconda scheda)
+
+Mappa interattiva del sito renderizzata con Mermaid.js direttamente nell'app. Il diagramma rispecchia le **navigazioni estratte**: ogni tipo (Main Navigation (Header), Secondary Navigation (Footer), ecc.) appare come nodo intermedio tra la root e le voci, con stile distinto; sotto ogni sezione si espandono le voci e i sottomenu con i **titoli effettivi delle pagine** come etichette. Ogni nodo pagina e colorato in base alla categoria. Il layout del flowchart e **orizzontale** (left-to-right), senza schiacciare il grafico nel contenitore, cosi la lettura segue l'asse orizzontale. Un pulsante **Scarica JPEG** (nell'iframe del diagramma) esporta l'immagine del grafico in alta risoluzione per slide o documenti.
+
+Le pagine crawlate ma assenti da tutte le navigazioni sono raggruppate sotto **Altre pagine**.
+
+Se il sito non espone navigazioni riconoscibili, il diagramma usa come fallback la gerarchia dei percorsi URL.
+
 ### Tabella completa
 
 Lista di tutte le pagine analizzate con filtro per categoria. Ogni riga si espande per mostrare il dettaglio completo: URL, titoli, meta description, lista H2, word count, breadcrumbs.
@@ -115,26 +135,22 @@ Lista di tutte le pagine analizzate con filtro per categoria. Ogni riga si espan
 
 Distribuzione delle pagine per categoria con percentuali, word count medio, e indicatori di qualita (pagine senza H1, senza meta description, errori 404 per categoria).
 
-### Diagramma visuale
-
-Mappa interattiva del sito renderizzata con Mermaid.js direttamente nell'app. Il diagramma rispecchia le **navigazioni estratte**: ogni tipo (Main Navigation (Header), Secondary Navigation (Footer), ecc.) appare come nodo intermedio tra la root e le voci, con stile distinto; sotto ogni sezione si espandono le voci e i sottomenu con i **titoli effettivi delle pagine** come etichette. Ogni nodo pagina e colorato in base alla categoria. Il layout del flowchart e **orizzontale** (left-to-right), senza schiacciare il grafico nel contenitore, cosi la lettura segue l'asse orizzontale. Un pulsante **Scarica JPEG** (nell'iframe del diagramma) esporta l'immagine del grafico in alta risoluzione per slide o documenti.
-
-Le pagine crawlate ma assenti da tutte le navigazioni sono raggruppate sotto **Altre pagine**.
-
-Se il sito non espone navigazioni riconoscibili, il diagramma usa come fallback la gerarchia dei percorsi URL.
-
-### Sitemap / Information Architecture
-
-Nel tab **Sitemap** la struttura e introdotta con il titolo **Information Architecture**. Ogni navigazione estratta ha il **suo blocco testuale** con l'etichetta professionale (es. Main Navigation (Header)) e l'albero delle voci come le vedrebbe un utente, con gerarchia parent-child; le pagine non coperte da nessuna navigazione compaiono in una sezione **Altre pagine**. Se non si riesce a estrarre navigazioni, la vista torna alla gerarchia basata sui percorsi URL.
-
 ---
 
 ## Esportazione
 
-### Excel multi-foglio
+### Excel — Information Architecture
 
-- **Foglio 1 — Pagine**: lista completa con URL, status, categoria, title, meta description, H1, H2, word count, breadcrumbs, profondita
-- **Foglio 2 — Statistiche**: aggregazioni per categoria con numero pagine, percentuale, word count medio, pagine con/senza meta description, errori 404
+Il file **ux_architect_pro_information_architecture.xlsx** non e una lista casuale di URL: il **primo foglio** segue la **stessa logica dell'IA** usata in app.
+
+- **Foglio "Information Architecture"**: una riga per ogni voce di menu nell'ordine gerarchico, con **zona di navigazione** (es. Main Navigation (Header)), **livello**, **percorso IA** (es. `Voce > Sottovoce`), **voce menu**, **URL**, **title** e campi SEO (categoria, status, meta, H1, H2, word count, breadcrumbs, profondita di crawl). In coda, sezione **Altre pagine (non in menu)** per le pagine scansionate ma non presenti in nessun menu. Se il sito non ha navigazioni riconoscibili, il foglio usa la **struttura URL** come fallback (`Struttura URL (fallback)`), in linea con la Sitemap testuale.
+- **Foglio "Statistiche"**: aggregazioni per categoria (come in precedenza).
+
+I testi delle celle sono sanitizzati per compatibilita con Excel (nessun carattere di controllo illegale tipico degli HTML scrapati).
+
+### Condivisione del rapporto
+
+Dal tab **Esporta** si puo **scaricare un file .json** con l'intero snapshot (risultati, navigazioni, errori 404) da inviare a un collega; dalla **sidebar** si puo **importare** quel file per rivedere lo stesso rapporto senza rifare il crawl. Per rapporti compatti e disponibile anche l'aggiornamento dell'URL con parametro `r` (link da copiare dalla barra del browser).
 
 ### Mermaid.js
 
