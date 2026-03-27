@@ -298,6 +298,84 @@ def extract_all_links(soup: BeautifulSoup, current_url: str, base_domain: str) -
     return _collect_links(soup.find_all("a", href=True), current_url, base_domain)
 
 
+def extract_menu_hierarchy(soup: BeautifulSoup, current_url: str, base_domain: str) -> list[dict]:
+    """Parse the main navigation <ul>/<li> nesting into a tree structure.
+
+    Returns a list of dicts: {"label": str, "url": str, "children": [...]}
+    """
+    def _resolve(href: str) -> str:
+        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            return ""
+        u = normalize_url(urljoin(current_url, href))
+        return u if is_same_domain(u, base_domain) else ""
+
+    def _parse_ul(ul_el) -> list[dict]:
+        items: list[dict] = []
+        for li in ul_el.find_all("li", recursive=False):
+            a = li.find("a")
+            if not a:
+                continue
+            label = a.get_text(strip=True)
+            url = _resolve(a.get("href", ""))
+            if not label:
+                continue
+            children: list[dict] = []
+            sub_ul = li.find("ul")
+            if sub_ul:
+                children = _parse_ul(sub_ul)
+            items.append({"label": label, "url": url, "children": children})
+        return items
+
+    # ── Identify the main nav (largest <nav> inside <header>) ──
+    main_nav = None
+    header = soup.find("header")
+    if header:
+        header_navs = header.find_all("nav")
+        if header_navs:
+            main_nav = max(header_navs, key=lambda n: len(n.find_all("a")))
+
+    if not main_nav:
+        for candidate in soup.find_all("nav"):
+            role = (candidate.get("aria-label") or candidate.get("role") or "").lower()
+            classes = " ".join(candidate.get("class", [])).lower()
+            if any(k in classes for k in ("main", "primary", "site-nav", "navbar")):
+                main_nav = candidate
+                break
+            if any(k in role for k in ("main", "primary", "navigation")):
+                main_nav = candidate
+                break
+
+    if not main_nav:
+        all_navs = soup.find_all("nav")
+        if all_navs:
+            main_nav = max(all_navs, key=lambda n: len(n.find_all("a")))
+
+    if not main_nav:
+        return []
+
+    top_ul = main_nav.find("ul")
+    if top_ul:
+        return _parse_ul(top_ul)
+
+    items: list[dict] = []
+    for a in main_nav.find_all("a", href=True):
+        label = a.get_text(strip=True)
+        url = _resolve(a.get("href", ""))
+        if label:
+            items.append({"label": label, "url": url, "children": []})
+    return items
+
+
+def flatten_menu_urls(menu: list[dict]) -> list[str]:
+    """Recursively collect all URLs from a menu hierarchy."""
+    urls: list[str] = []
+    for item in menu:
+        if item["url"]:
+            urls.append(item["url"])
+        urls.extend(flatten_menu_urls(item["children"]))
+    return urls
+
+
 def fetch_sitemap_urls(base_url: str, session: requests.Session, base_domain: str) -> list[str]:
     """Try to fetch URLs from sitemap.xml or robots.txt sitemap reference."""
     urls: list[str] = []
@@ -588,26 +666,52 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
             add_log(f"Errore: {url} — {exc}", "err")
         return None
 
-    # ── Phase 1: Homepage + extract main navigation ──
+    menu_hierarchy: list[dict] = []
+
+    # ── Phase 1: Homepage + extract main navigation hierarchy ──
     add_log(f"Avvio crawl di <b>{start_url}</b>")
     add_log("Fase 1 — Analisi homepage e menu di navigazione", "info")
 
     home_soup = process_page(start_url, 0)
 
     if home_soup:
-        homepage_nav = extract_nav_links(home_soup, start_url, base_domain)
-        nav_urls.update(homepage_nav)
+        menu_hierarchy = extract_menu_hierarchy(home_soup, start_url, base_domain)
 
-        if homepage_nav:
-            add_log(f"Trovate <b>{len(homepage_nav)}</b> voci nel menu principale", "ok")
-            for nav_link in homepage_nav:
+        if menu_hierarchy:
+            def _log_menu(items: list[dict], indent: int = 0):
+                for item in items:
+                    prefix = "&nbsp;&nbsp;" * indent
+                    add_log(f"{prefix}• <b>{item['label']}</b>", "ok")
+                    if item["children"]:
+                        _log_menu(item["children"], indent + 1)
+
+            top_count = len(menu_hierarchy)
+            total_count = len(flatten_menu_urls(menu_hierarchy))
+            add_log(
+                f"Menu principale: <b>{top_count}</b> voci top-level, "
+                f"<b>{total_count}</b> link totali",
+                "ok",
+            )
+            _log_menu(menu_hierarchy)
+
+            all_menu_urls = flatten_menu_urls(menu_hierarchy)
+            nav_urls.update(all_menu_urls)
+            for nav_link in all_menu_urls:
                 if nav_link not in visited:
                     priority_queue.append((nav_link, 1))
         else:
-            add_log("Nessun menu di navigazione trovato, uso tutti i link", "warn")
-            for link in extract_all_links(home_soup, start_url, base_domain):
-                if link not in visited:
-                    priority_queue.append((link, 1))
+            homepage_nav = extract_nav_links(home_soup, start_url, base_domain)
+            nav_urls.update(homepage_nav)
+            if homepage_nav:
+                add_log(f"Trovate <b>{len(homepage_nav)}</b> voci di navigazione (flat)", "ok")
+                for nav_link in homepage_nav:
+                    if nav_link not in visited:
+                        priority_queue.append((nav_link, 1))
+            else:
+                add_log("Nessun menu trovato, uso tutti i link", "warn")
+                for link in extract_all_links(home_soup, start_url, base_domain):
+                    if link not in visited:
+                        priority_queue.append((link, 1))
 
     # ── Phase 2: Sitemap.xml ──
     add_log("Fase 2 — Ricerca sitemap.xml", "info")
@@ -652,7 +756,7 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
 
     add_log(f"Crawl completato — <b>{len(results)}</b> pagine analizzate", "ok")
     progress_bar.progress(1.0, text="Crawl completato!")
-    return results, errors_404
+    return results, errors_404, menu_hierarchy
 
 
 # ─────────────────────────────────────────────
@@ -692,11 +796,43 @@ def _build_page_tree(results: list[dict]):
     return tree, path_to_page
 
 
-def build_mermaid(results: list[dict], base_url: str) -> str:
-    """Build a hierarchical LR Mermaid flowchart using page titles, colored by category."""
-    tree, path_to_page = _build_page_tree(results)
+def _make_mermaid_id_factory():
+    """Return a function that generates unique Mermaid node IDs."""
+    used: set[str] = set()
+
+    def make_id(hint: str) -> str:
+        nid = re.sub(r"[^a-zA-Z0-9]", "_", hint)[:50]
+        if not nid or nid[0].isdigit():
+            nid = "n" + (nid or "x")
+        orig = nid
+        c = 0
+        while nid in used:
+            c += 1
+            nid = f"{orig}_{c}"
+        used.add(nid)
+        return nid
+
+    return make_id
+
+
+def _url_to_page(results: list[dict]) -> dict[str, dict]:
+    """Map normalized URL -> page data."""
+    return {page["url"]: page for page in results}
+
+
+def build_mermaid(results: list[dict], base_url: str,
+                  menu_hierarchy: list[dict] | None = None) -> str:
+    """Build a Mermaid LR flowchart.
+
+    If menu_hierarchy is available, use it as the primary structure so the
+    diagram mirrors the site's actual navigation.  Pages not in the menu
+    are appended under an 'Altre pagine' group.
+    """
+    url_to_page = _url_to_page(results)
+    make_id = _make_mermaid_id_factory()
 
     lines = ["graph LR"]
+    node_classes: list[str] = []
 
     style_defs = []
     cat_class: dict[str, str] = {}
@@ -705,68 +841,103 @@ def build_mermaid(results: list[dict], base_url: str) -> str:
         cat_class[cat] = cls
         style_defs.append(f"    classDef {cls} fill:{color},stroke:#333,stroke-width:1px,color:#000")
 
-    root_id = "ROOT"
-    home_page = path_to_page.get("(home)")
-    root_label = (home_page.get("title") or urlparse(base_url).netloc)[:45] if home_page else urlparse(base_url).netloc
+    root_id = make_id("ROOT")
+    root_label = urlparse(base_url).netloc
+    home_page = url_to_page.get(normalize_url(base_url))
+    if home_page and home_page.get("title"):
+        root_label = home_page["title"][:45]
     root_label = root_label.replace('"', "'")
     lines.append(f'    {root_id}["{root_label}"]')
     if home_page:
-        cls = cat_class.get(home_page.get("category", "Other"), "cat0")
-        lines.append(f"    class {root_id} {cls}")
+        node_classes.append(f"    class {root_id} {cat_class.get(home_page.get('category', 'Other'), 'cat0')}")
 
-    node_ids_used: set[str] = {root_id}
-    node_classes: list[str] = []
+    rendered_urls: set[str] = set()
+    if home_page:
+        rendered_urls.add(home_page["url"])
     node_count = 0
     max_nodes = 80
 
-    def make_id(path_key: str) -> str:
-        nid = re.sub(r"[^a-zA-Z0-9]", "_", path_key)[:50]
-        if nid and nid[0].isdigit():
-            nid = "n" + nid
-        if not nid:
-            nid = "node"
-        orig = nid
-        c = 0
-        while nid in node_ids_used:
-            c += 1
-            nid = f"{orig}_{c}"
-        node_ids_used.add(nid)
-        return nid
-
-    def walk(tree_node: dict, parent_id: str, current_path: str = ""):
+    def _add_menu_node(item: dict, parent_id: str):
         nonlocal node_count
-        for key in sorted(tree_node.keys()):
-            if node_count >= max_nodes:
-                return
-            full_path = f"{current_path}/{key}".strip("/") if current_path else key
-            nid = make_id(full_path)
-            node_count += 1
+        if node_count >= max_nodes:
+            return
+        node_count += 1
 
-            page = path_to_page.get(full_path)
-            if page:
-                label = (page.get("title") or key)[:45].replace('"', "'")
+        label = item["label"][:45].replace('"', "'")
+        page = url_to_page.get(item["url"]) if item["url"] else None
+        if page:
+            rendered_urls.add(page["url"])
+            if page.get("title"):
+                label = page["title"][:45].replace('"', "'")
+            cat = page.get("category", "Other")
+        else:
+            cat = "Other"
+
+        nid = make_id(item.get("label", "item"))
+        lines.append(f'    {nid}["{label}"]')
+        lines.append(f"    {parent_id} --> {nid}")
+        node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
+
+        for child in item.get("children", []):
+            _add_menu_node(child, nid)
+
+    if menu_hierarchy:
+        for item in menu_hierarchy:
+            _add_menu_node(item, root_id)
+
+        remaining = [p for p in results if p["url"] not in rendered_urls
+                     and p.get("status_code", 200) != 404]
+        if remaining and node_count < max_nodes:
+            other_id = make_id("altre_pagine")
+            lines.append(f'    {other_id}["Altre pagine ({len(remaining)})"]')
+            lines.append(f"    {root_id} --> {other_id}")
+            node_classes.append(f"    class {other_id} {cat_class.get('Other', 'cat0')}")
+            for page in remaining[:max_nodes - node_count]:
+                node_count += 1
+                nid = make_id(page["url"])
+                plabel = (page.get("title") or page["url"])[:45].replace('"', "'")
                 cat = page.get("category", "Other")
-            else:
-                label = key
-                cat = "Other"
+                lines.append(f'    {nid}["{plabel}"]')
+                lines.append(f"    {other_id} --> {nid}")
+                node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
+    else:
+        tree, path_to_page = _build_page_tree(results)
 
-            lines.append(f'    {nid}["{label}"]')
-            lines.append(f"    {parent_id} --> {nid}")
-            node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
+        def walk(tree_node: dict, parent_id: str, current_path: str = ""):
+            nonlocal node_count
+            for key in sorted(tree_node.keys()):
+                if node_count >= max_nodes:
+                    return
+                full_path = f"{current_path}/{key}".strip("/") if current_path else key
+                nid = make_id(full_path)
+                node_count += 1
+                page = path_to_page.get(full_path)
+                if page:
+                    label = (page.get("title") or key)[:45].replace('"', "'")
+                    cat = page.get("category", "Other")
+                else:
+                    label = key
+                    cat = "Other"
+                lines.append(f'    {nid}["{label}"]')
+                lines.append(f"    {parent_id} --> {nid}")
+                node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
+                walk(tree_node[key], nid, full_path)
 
-            walk(tree_node[key], nid, full_path)
+        walk(tree, root_id)
 
-    walk(tree, root_id)
     lines.extend(node_classes)
     lines.extend(style_defs)
     return "\n".join(lines)
 
 
-def build_mermaid_figma(results: list[dict], base_url: str) -> str:
-    """Build a Figma-compatible Mermaid flowchart (LR, quoted text, no emojis, page titles)."""
-    tree, path_to_page = _build_page_tree(results)
+def build_mermaid_figma(results: list[dict], base_url: str,
+                        menu_hierarchy: list[dict] | None = None) -> str:
+    """Figma-compatible Mermaid (LR, quoted text, no emojis). Uses menu hierarchy."""
+    url_to_page = _url_to_page(results)
+    make_id = _make_mermaid_id_factory()
 
     lines = ["graph LR"]
+    node_classes: list[str] = []
 
     style_defs = []
     cat_class: dict[str, str] = {}
@@ -775,60 +946,78 @@ def build_mermaid_figma(results: list[dict], base_url: str) -> str:
         cat_class[cat] = cls
         style_defs.append(f"    classDef {cls} fill:{color},stroke:#333,stroke-width:1px,color:#000")
 
-    root_id = "ROOT"
-    home_page = path_to_page.get("(home)")
-    root_label = (home_page.get("title") or urlparse(base_url).netloc)[:40] if home_page else urlparse(base_url).netloc
+    root_id = make_id("ROOT")
+    root_label = urlparse(base_url).netloc
+    home_page = url_to_page.get(normalize_url(base_url))
+    if home_page and home_page.get("title"):
+        root_label = home_page["title"][:40]
     root_label = root_label.replace('"', "'")
     lines.append(f'    {root_id}["{root_label}"]')
     if home_page:
-        cls = cat_class.get(home_page.get("category", "Other"), "c0")
-        lines.append(f"    class {root_id} {cls}")
+        node_classes.append(f"    class {root_id} {cat_class.get(home_page.get('category', 'Other'), 'c0')}")
 
-    node_ids_used: set[str] = {root_id}
-    node_classes: list[str] = []
+    rendered_urls: set[str] = set()
+    if home_page:
+        rendered_urls.add(home_page["url"])
     node_count = 0
     max_nodes = 50
 
-    def make_id(path_key: str) -> str:
-        nid = re.sub(r"[^a-zA-Z0-9]", "_", path_key)[:50]
-        if nid and nid[0].isdigit():
-            nid = "n" + nid
-        if not nid:
-            nid = "node"
-        orig = nid
-        c = 0
-        while nid in node_ids_used:
-            c += 1
-            nid = f"{orig}_{c}"
-        node_ids_used.add(nid)
-        return nid
-
-    def walk(tree_node: dict, parent_id: str, current_path: str = ""):
+    def _add_menu_node(item: dict, parent_id: str):
         nonlocal node_count
-        for key in sorted(tree_node.keys()):
-            if node_count >= max_nodes:
-                return
-            full_path = f"{current_path}/{key}".strip("/") if current_path else key
-            nid = make_id(full_path)
-            node_count += 1
+        if node_count >= max_nodes:
+            return
+        node_count += 1
 
-            page = path_to_page.get(full_path)
-            if page:
-                label = (page.get("title") or key)[:40].replace('"', "'")
-                cat = page.get("category", "Other")
-                if page.get("status_code") == 404:
-                    label = f"[404] {label}"
-            else:
-                label = key
-                cat = "Other"
+        label = item["label"][:40].replace('"', "'")
+        page = url_to_page.get(item["url"]) if item["url"] else None
+        if page:
+            rendered_urls.add(page["url"])
+            if page.get("title"):
+                label = page["title"][:40].replace('"', "'")
+            cat = page.get("category", "Other")
+            if page.get("status_code") == 404:
+                label = f"[404] {label}"
+        else:
+            cat = "Other"
 
-            lines.append(f'    {nid}["{label}"]')
-            lines.append(f"    {parent_id} --> {nid}")
-            node_classes.append(f"    class {nid} {cat_class.get(cat, 'c0')}")
+        nid = make_id(item.get("label", "item"))
+        lines.append(f'    {nid}["{label}"]')
+        lines.append(f"    {parent_id} --> {nid}")
+        node_classes.append(f"    class {nid} {cat_class.get(cat, 'c0')}")
 
-            walk(tree_node[key], nid, full_path)
+        for child in item.get("children", []):
+            _add_menu_node(child, nid)
 
-    walk(tree, root_id)
+    if menu_hierarchy:
+        for item in menu_hierarchy:
+            _add_menu_node(item, root_id)
+    else:
+        tree, path_to_page = _build_page_tree(results)
+
+        def walk(tree_node: dict, parent_id: str, current_path: str = ""):
+            nonlocal node_count
+            for key in sorted(tree_node.keys()):
+                if node_count >= max_nodes:
+                    return
+                full_path = f"{current_path}/{key}".strip("/") if current_path else key
+                nid = make_id(full_path)
+                node_count += 1
+                page = path_to_page.get(full_path)
+                if page:
+                    label = (page.get("title") or key)[:40].replace('"', "'")
+                    cat = page.get("category", "Other")
+                    if page.get("status_code") == 404:
+                        label = f"[404] {label}"
+                else:
+                    label = key
+                    cat = "Other"
+                lines.append(f'    {nid}["{label}"]')
+                lines.append(f"    {parent_id} --> {nid}")
+                node_classes.append(f"    class {nid} {cat_class.get(cat, 'c0')}")
+                walk(tree_node[key], nid, full_path)
+
+        walk(tree, root_id)
+
     lines.extend(node_classes)
     lines.extend(style_defs)
     return "\n".join(lines)
@@ -1009,6 +1198,7 @@ with st.sidebar:
 if "results" not in st.session_state:
     st.session_state.results = None
     st.session_state.errors_404 = []
+    st.session_state.menu_hierarchy = []
     st.session_state.mermaid_code = ""
     st.session_state.mermaid_figma = ""
 
@@ -1024,7 +1214,7 @@ if run_crawl:
         status_text = st.empty()
         log_container = st.empty()
 
-        results, errors_404 = crawl_site(
+        results, errors_404, menu_hierarchy = crawl_site(
             start_url, max_depth, max_pages,
             progress_bar, log_container, status_text,
         )
@@ -1034,8 +1224,9 @@ if run_crawl:
 
         st.session_state.results = results
         st.session_state.errors_404 = errors_404
-        st.session_state.mermaid_code = build_mermaid(results, start_url)
-        st.session_state.mermaid_figma = build_mermaid_figma(results, start_url)
+        st.session_state.menu_hierarchy = menu_hierarchy
+        st.session_state.mermaid_code = build_mermaid(results, start_url, menu_hierarchy)
+        st.session_state.mermaid_figma = build_mermaid_figma(results, start_url, menu_hierarchy)
         st.rerun()
 
 
@@ -1180,49 +1371,103 @@ if st.session_state.results is not None:
 
     with tab_sitemap:
         st.markdown('<div class="section-title">Sitemap</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Struttura gerarchica con i nomi delle pagine</div>', unsafe_allow_html=True)
 
-        path_to_title: dict[str, str] = {}
-        for page in results:
-            parsed = urlparse(page["url"])
-            path = parsed.path.strip("/") or "(home)"
-            title = (page.get("title") or "").strip()
-            if title:
-                path_to_title[path] = title
+        menu_hierarchy = st.session_state.menu_hierarchy
+        url_to_page = {p["url"]: p for p in results}
 
-        tree: dict = {}
-        for page in results:
-            parsed = urlparse(page["url"])
-            parts = [p for p in parsed.path.strip("/").split("/") if p]
-            if not parts:
-                parts = ["(home)"]
-            node = tree
-            for part in parts:
-                if part not in node:
-                    node[part] = {}
-                node = node[part]
+        if menu_hierarchy:
+            st.markdown(
+                '<div class="section-subtitle">'
+                'Struttura basata sul menu di navigazione del sito'
+                '</div>',
+                unsafe_allow_html=True,
+            )
 
-        def render_tree(node: dict, prefix: str = "", is_last: bool = True,
-                        depth: int = 0, current_path: str = ""):
-            lines_out = []
-            items = sorted(node.keys())
-            for i, key in enumerate(items):
-                last = i == len(items) - 1
-                connector = "└── " if last else "├── "
-                full_path = f"{current_path}/{key}".strip("/") if current_path else key
-                label = path_to_title.get(full_path, key)
-                lines_out.append(f"{prefix}{connector}{label}")
-                extension = "    " if last else "│   "
-                lines_out.extend(render_tree(
-                    node[key], prefix + extension, last, depth + 1, full_path
-                ))
-            return lines_out
+            def render_menu_tree(items: list[dict], prefix: str = ""):
+                lines_out: list[str] = []
+                for i, item in enumerate(items):
+                    last = i == len(items) - 1
+                    connector = "└── " if last else "├── "
+                    page = url_to_page.get(item["url"]) if item["url"] else None
+                    label = item["label"]
+                    if page and page.get("title"):
+                        label = page["title"]
+                    lines_out.append(f"{prefix}{connector}{label}")
+                    extension = "    " if last else "│   "
+                    if item.get("children"):
+                        lines_out.extend(render_menu_tree(item["children"], prefix + extension))
+                return lines_out
 
-        root_label = urlparse(results[0]["url"]).netloc
-        root_title = path_to_title.get("(home)", root_label)
-        tree_text = f"{root_title}\n"
-        tree_text += "\n".join(render_tree(tree))
-        st.code(tree_text, language=None)
+            home_page = url_to_page.get(normalize_url(
+                results[0]["url"].split(urlparse(results[0]["url"]).path)[0] + "/"
+            ))
+            root_title = (home_page.get("title") if home_page else None) or urlparse(results[0]["url"]).netloc
+            tree_text = f"{root_title}\n"
+            tree_text += "\n".join(render_menu_tree(menu_hierarchy))
+
+            menu_urls = set(flatten_menu_urls(menu_hierarchy))
+            remaining = [p for p in results
+                         if p["url"] not in menu_urls
+                         and p.get("status_code", 200) != 404
+                         and p["url"] != normalize_url(results[0]["url"].split(urlparse(results[0]["url"]).path)[0] + "/")]
+            if remaining:
+                tree_text += f"\n└── Altre pagine ({len(remaining)})"
+                for j, page in enumerate(remaining[:30]):
+                    last = j == len(remaining[:30]) - 1
+                    conn = "    └── " if last else "    ├── "
+                    tree_text += f"\n{conn}{page.get('title') or page['url']}"
+
+            st.code(tree_text, language=None)
+
+        else:
+            st.markdown(
+                '<div class="section-subtitle">'
+                'Struttura gerarchica basata sui percorsi URL'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+            path_to_title: dict[str, str] = {}
+            for page in results:
+                parsed = urlparse(page["url"])
+                path = parsed.path.strip("/") or "(home)"
+                title = (page.get("title") or "").strip()
+                if title:
+                    path_to_title[path] = title
+
+            tree: dict = {}
+            for page in results:
+                parsed = urlparse(page["url"])
+                parts = [p for p in parsed.path.strip("/").split("/") if p]
+                if not parts:
+                    parts = ["(home)"]
+                node = tree
+                for part in parts:
+                    if part not in node:
+                        node[part] = {}
+                    node = node[part]
+
+            def render_tree(node: dict, prefix: str = "", is_last: bool = True,
+                            depth: int = 0, current_path: str = ""):
+                lines_out: list[str] = []
+                items = sorted(node.keys())
+                for i, key in enumerate(items):
+                    last = i == len(items) - 1
+                    connector = "└── " if last else "├── "
+                    full_path = f"{current_path}/{key}".strip("/") if current_path else key
+                    label = path_to_title.get(full_path, key)
+                    lines_out.append(f"{prefix}{connector}{label}")
+                    extension = "    " if last else "│   "
+                    lines_out.extend(render_tree(
+                        node[key], prefix + extension, last, depth + 1, full_path
+                    ))
+                return lines_out
+
+            root_label = urlparse(results[0]["url"]).netloc
+            root_title = path_to_title.get("(home)", root_label)
+            tree_text = f"{root_title}\n"
+            tree_text += "\n".join(render_tree(tree))
+            st.code(tree_text, language=None)
 
     with tab_figma:
         st.markdown('<div class="section-title">Esporta in Figma</div>', unsafe_allow_html=True)
