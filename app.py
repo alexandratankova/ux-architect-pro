@@ -950,101 +950,51 @@ def build_mermaid(results: list[dict], base_url: str,
     return "\n".join(lines)
 
 
-def build_mermaid_figma(results: list[dict], base_url: str,
-                        menu_hierarchy: list[dict] | None = None) -> str:
-    """Figma-compatible Mermaid (LR, quoted text, no emojis). Uses menu hierarchy."""
-    url_to_page = _url_to_page(results)
-    make_id = _make_mermaid_id_factory()
 
-    lines = ["graph LR"]
-    node_classes: list[str] = []
-
-    style_defs = []
-    cat_class: dict[str, str] = {}
-    for i, (cat, color) in enumerate(MERMAID_COLORS.items()):
-        cls = f"c{i}"
-        cat_class[cat] = cls
-        style_defs.append(f"    classDef {cls} fill:{color},stroke:#333,stroke-width:1px,color:#000")
-
-    root_id = make_id("ROOT")
-    root_label = urlparse(base_url).netloc
-    home_page = url_to_page.get(normalize_url(base_url))
-    if home_page and home_page.get("title"):
-        root_label = home_page["title"][:40]
-    root_label = root_label.replace('"', "'")
-    lines.append(f'    {root_id}["{root_label}"]')
-    if home_page:
-        node_classes.append(f"    class {root_id} {cat_class.get(home_page.get('category', 'Other'), 'c0')}")
-
-    rendered_urls: set[str] = set()
-    if home_page:
-        rendered_urls.add(home_page["url"])
-    node_count = 0
-    max_nodes = 50
-
-    def _add_menu_node(item: dict, parent_id: str):
-        nonlocal node_count
-        if node_count >= max_nodes:
-            return
-        node_count += 1
-
-        label = item["label"][:40].replace('"', "'")
-        page = url_to_page.get(item["url"]) if item["url"] else None
-        if page:
-            rendered_urls.add(page["url"])
-            if page.get("title"):
-                label = page["title"][:40].replace('"', "'")
-            cat = page.get("category", "Other")
-            if page.get("status_code") == 404:
-                label = f"[404] {label}"
-        else:
-            cat = "Other"
-
-        nid = make_id(item.get("label", "item"))
-        lines.append(f'    {nid}["{label}"]')
-        lines.append(f"    {parent_id} --> {nid}")
-        node_classes.append(f"    class {nid} {cat_class.get(cat, 'c0')}")
-
-        for child in item.get("children", []):
-            _add_menu_node(child, nid)
-
-    if menu_hierarchy:
-        for item in menu_hierarchy:
-            _add_menu_node(item, root_id)
-    else:
-        tree, path_to_page = _build_page_tree(results)
-
-        def walk(tree_node: dict, parent_id: str, current_path: str = ""):
-            nonlocal node_count
-            for key in sorted(tree_node.keys()):
-                if node_count >= max_nodes:
-                    return
-                full_path = f"{current_path}/{key}".strip("/") if current_path else key
-                nid = make_id(full_path)
-                node_count += 1
-                page = path_to_page.get(full_path)
-                if page:
-                    label = (page.get("title") or key)[:40].replace('"', "'")
-                    cat = page.get("category", "Other")
-                    if page.get("status_code") == 404:
-                        label = f"[404] {label}"
-                else:
-                    label = key
-                    cat = "Other"
-                lines.append(f'    {nid}["{label}"]')
-                lines.append(f"    {parent_id} --> {nid}")
-                node_classes.append(f"    class {nid} {cat_class.get(cat, 'c0')}")
-                walk(tree_node[key], nid, full_path)
-
-        walk(tree, root_id)
-
-    lines.extend(node_classes)
-    lines.extend(style_defs)
-    return "\n".join(lines)
-
-
-def render_mermaid_html(mermaid_code: str, height: int = 600) -> str:
+def render_mermaid_html(mermaid_code: str, height: int = 600,
+                        show_download: bool = False) -> str:
     """Return a self-contained HTML page that renders a Mermaid diagram."""
+    download_btn_css = ""
+    download_btn_html = ""
+    download_btn_js = ""
+
+    if show_download:
+        download_btn_css = """
+        #dl-btn {
+            position: fixed; top: 12px; right: 16px; z-index: 100;
+            background: #4f46e5; color: #fff; border: none;
+            padding: 8px 18px; border-radius: 8px; cursor: pointer;
+            font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15);
+            transition: background .2s;
+        }
+        #dl-btn:hover { background: #4338ca; }
+        """
+        download_btn_html = '<button id="dl-btn">Scarica JPEG</button>'
+        download_btn_js = """
+        document.getElementById('dl-btn').addEventListener('click', function() {
+            var svg = document.querySelector('#diagram svg');
+            if (!svg) return;
+            var svgData = new XMLSerializer().serializeToString(svg);
+            var canvas = document.createElement('canvas');
+            var ctx = canvas.getContext('2d');
+            var img = new Image();
+            img.onload = function() {
+                var scale = 2;
+                canvas.width = img.width * scale;
+                canvas.height = img.height * scale;
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                var a = document.createElement('a');
+                a.download = 'sitemap_diagram.jpg';
+                a.href = canvas.toDataURL('image/jpeg', 0.95);
+                a.click();
+            };
+            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+        });
+        """
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -1057,20 +1007,21 @@ def render_mermaid_html(mermaid_code: str, height: int = 600) -> str:
         body {{
             padding: 20px;
             background: #f9fafb;
-            display: flex; justify-content: center;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }}
         #diagram {{
-            width: 100%; overflow-x: auto;
+            overflow-x: auto;
             background: #fff;
             border: 1px solid #eaedf0;
             border-radius: 12px;
             padding: 32px;
         }}
-        .mermaid svg {{ max-width: 100%; height: auto; }}
+        .mermaid svg {{ height: auto; }}
+        {download_btn_css}
     </style>
 </head>
 <body>
+    {download_btn_html}
     <div id="diagram">
         <pre class="mermaid">
 {mermaid_code}
@@ -1080,15 +1031,14 @@ def render_mermaid_html(mermaid_code: str, height: int = 600) -> str:
         mermaid.initialize({{
             startOnLoad: true,
             theme: 'neutral',
-            flowchart: {{ useMaxWidth: true, htmlLabels: true, curve: 'basis' }},
+            flowchart: {{ useMaxWidth: false, htmlLabels: true, curve: 'basis' }},
             securityLevel: 'loose'
         }});
+        {download_btn_js}
     </script>
 </body>
 </html>"""
 
-
-FIGMA_EXPORT_PATH = "_figma_sitemap_export.json"
 
 
 # ─────────────────────────────────────────────
@@ -1220,7 +1170,6 @@ if "results" not in st.session_state:
     st.session_state.errors_404 = []
     st.session_state.menu_hierarchy = []
     st.session_state.mermaid_code = ""
-    st.session_state.mermaid_figma = ""
 
 if run_crawl:
     if not start_url:
@@ -1246,7 +1195,6 @@ if run_crawl:
         st.session_state.errors_404 = errors_404
         st.session_state.menu_hierarchy = menu_hierarchy
         st.session_state.mermaid_code = build_mermaid(results, start_url, menu_hierarchy)
-        st.session_state.mermaid_figma = build_mermaid_figma(results, start_url, menu_hierarchy)
         st.rerun()
 
 
@@ -1283,9 +1231,8 @@ if st.session_state.results is not None:
     st.markdown("---")
 
     # ── Tabs ──
-    tab_table, tab_stats, tab_mermaid, tab_sitemap, tab_figma, tab_export = st.tabs(
-        ["Tabella", "Statistiche", "Diagramma",
-         "Sitemap", "Figma Export", "Esporta"]
+    tab_table, tab_stats, tab_mermaid, tab_sitemap, tab_export = st.tabs(
+        ["Tabella", "Statistiche", "Diagramma", "Sitemap", "Esporta"]
     )
 
     with tab_table:
@@ -1373,21 +1320,14 @@ if st.session_state.results is not None:
 
     with tab_mermaid:
         st.markdown('<div class="section-title">Diagramma gerarchico</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Struttura del sito raggruppata per categoria. Scroll orizzontale per diagrammi ampi.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">Struttura del sito con layout orizzontale. Usa lo scroll per navigare e il bottone in alto a destra per scaricare come JPEG.</div>', unsafe_allow_html=True)
 
         mermaid_code = st.session_state.mermaid_code
-        diagram_html = render_mermaid_html(mermaid_code, height=650)
+        diagram_html = render_mermaid_html(mermaid_code, height=650, show_download=True)
         components.html(diagram_html, height=650, scrolling=True)
 
         with st.expander("Mostra codice Mermaid"):
             st.code(mermaid_code, language="mermaid")
-
-        st.download_button(
-            "Scarica Mermaid (.md)",
-            data=f"```mermaid\n{mermaid_code}\n```",
-            file_name="sitemap_mermaid.md",
-            mime="text/markdown",
-        )
 
     with tab_sitemap:
         st.markdown('<div class="section-title">Sitemap</div>', unsafe_allow_html=True)
@@ -1488,64 +1428,6 @@ if st.session_state.results is not None:
             tree_text = f"{root_title}\n"
             tree_text += "\n".join(render_tree(tree))
             st.code(tree_text, language=None)
-
-    with tab_figma:
-        st.markdown('<div class="section-title">Esporta in Figma</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="section-subtitle">'
-            'Versione del diagramma ottimizzata per FigJam (layout orizzontale, senza emoji). '
-            'Salva e chiedi all\'assistente AI di esportarlo direttamente.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-        figma_mermaid = st.session_state.mermaid_figma
-
-        figma_html = render_mermaid_html(figma_mermaid, height=500)
-        components.html(figma_html, height=500, scrolling=True)
-
-        with st.expander("Mostra codice Mermaid (versione Figma)"):
-            st.code(figma_mermaid, language="mermaid")
-
-        st.markdown("---")
-
-        col_save, col_dl = st.columns(2)
-
-        with col_save:
-            if st.button("Salva per Figma export", type="primary", use_container_width=True):
-                export_data = {
-                    "name": "UX Architect Pro - Site Map",
-                    "mermaid_syntax": figma_mermaid,
-                    "categories": {
-                        cat: {"color": meta["color"], "page_count": sum(
-                            1 for p in results if p.get("category") == cat
-                        )}
-                        for cat, meta in CATEGORIES.items()
-                    },
-                    "total_pages": len(results),
-                    "export_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                }
-                import os
-                export_path = os.path.join(os.path.dirname(__file__), FIGMA_EXPORT_PATH)
-                with open(export_path, "w", encoding="utf-8") as f:
-                    json.dump(export_data, f, indent=2, ensure_ascii=False)
-                st.success("Salvato. Ora chiedi all'assistente AI: **\"Esporta la sitemap in FigJam\"**")
-
-        with col_dl:
-            st.download_button(
-                "Scarica Mermaid (Figma-ready)",
-                data=figma_mermaid,
-                file_name="sitemap_figma.mmd",
-                mime="text/plain",
-                use_container_width=True,
-            )
-
-        st.markdown("---")
-        st.caption(
-            "Come funziona: clicca Salva per Figma export, poi chiedi all'assistente AI "
-            "in chat \"Esporta la sitemap in FigJam\". Verra creato il diagramma "
-            "direttamente nel tuo workspace FigJam."
-        )
 
     with tab_export:
         st.markdown('<div class="section-title">Esportazione dati</div>', unsafe_allow_html=True)
