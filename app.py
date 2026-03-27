@@ -10,9 +10,11 @@ import time
 import io
 import re
 import json
+import xml.etree.ElementTree as ET
 import zlib
 import base64
 import openpyxl
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -663,6 +665,181 @@ def flatten_nav_urls(navigations: dict[str, list[dict]]) -> list[str]:
     return all_urls
 
 
+def _path_key_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    parts = [x for x in parsed.path.strip("/").split("/") if x]
+    return "/".join(parts) if parts else "(home)"
+
+
+def build_sitemap_tree_excel_rows(
+    results: list[dict],
+    navigations: dict[str, list[dict]] | None,
+) -> list[dict]:
+    """Righe allineate al tab Sitemap: zone navigazione, testo albero ASCII, URL."""
+    rows: list[dict] = []
+    if not results:
+        return rows
+    url_to_page = {p["url"]: p for p in results}
+
+    def walk_menu(items: list[dict], prefix: str, zone: str) -> None:
+        for i, item in enumerate(items):
+            last = i == len(items) - 1
+            connector = "└── " if last else "├── "
+            page = url_to_page.get(item["url"]) if item.get("url") else None
+            label = item.get("label") or ""
+            if page and page.get("title"):
+                label = page["title"]
+            tree_line = f"{prefix}{connector}{label}"
+            rows.append({
+                "navigazione": zone,
+                "albero": tree_line,
+                "url": item.get("url") or "",
+            })
+            extension = "    " if last else "│   "
+            if item.get("children"):
+                walk_menu(item["children"], prefix + extension, zone)
+
+    if navigations:
+        home_url = normalize_url(
+            results[0]["url"].split(urlparse(results[0]["url"]).path)[0] + "/"
+        )
+        home_page = url_to_page.get(home_url)
+        root_title = (home_page.get("title") if home_page else None) or urlparse(results[0]["url"]).netloc
+        rows.append({"navigazione": "(root)", "albero": root_title, "url": home_url})
+
+        for nav_name, nav_items in navigations.items():
+            rows.append({"navigazione": nav_name, "albero": f"── {nav_name} ──", "url": ""})
+            walk_menu(nav_items, "", nav_name)
+
+        all_nav_urls = set(flatten_nav_urls(navigations))
+        remaining = [
+            p for p in results
+            if p["url"] not in all_nav_urls
+            and p.get("status_code", 200) != 404
+            and p["url"] != home_url
+        ]
+        if remaining:
+            rows.append({
+                "navigazione": "Altre pagine",
+                "albero": f"── Altre pagine ({len(remaining)}) ──",
+                "url": "",
+            })
+            for j, page in enumerate(remaining):
+                last = j == len(remaining) - 1
+                conn = "└── " if last else "├── "
+                lab = page.get("title") or page["url"]
+                rows.append({
+                    "navigazione": "Altre pagine",
+                    "albero": f"{conn}{lab}",
+                    "url": page["url"],
+                })
+    else:
+        path_to_title: dict[str, str] = {}
+        for page in results:
+            parsed = urlparse(page["url"])
+            path = parsed.path.strip("/") or "(home)"
+            title = (page.get("title") or "").strip()
+            if title:
+                path_to_title[path] = title
+
+        tree: dict = {}
+        for page in results:
+            parsed = urlparse(page["url"])
+            parts = [p for p in parsed.path.strip("/").split("/") if p]
+            if not parts:
+                parts = ["(home)"]
+            node = tree
+            for part in parts:
+                if part not in node:
+                    node[part] = {}
+                node = node[part]
+
+        def walk_url_tree(node: dict, prefix: str, current_path: str) -> None:
+            items = sorted(node.keys())
+            for i, key in enumerate(items):
+                last = i == len(items) - 1
+                connector = "└── " if last else "├── "
+                full_path = f"{current_path}/{key}".strip("/") if current_path else key
+                label = path_to_title.get(full_path, key)
+                url_match = ""
+                for p in results:
+                    if _path_key_from_url(p["url"]) == full_path:
+                        url_match = p["url"]
+                        break
+                rows.append({
+                    "navigazione": "Struttura URL",
+                    "albero": f"{prefix}{connector}{label}",
+                    "url": url_match,
+                })
+                extension = "    " if last else "│   "
+                walk_url_tree(node[key], prefix + extension, full_path)
+
+        root_label = urlparse(results[0]["url"]).netloc
+        root_title = path_to_title.get("(home)", root_label)
+        rows.append({"navigazione": "Struttura URL", "albero": root_title, "url": ""})
+        walk_url_tree(tree, "", "")
+
+    return rows
+
+
+def mermaid_to_png_bytes(mermaid_code: str) -> bytes | None:
+    """Render Mermaid in PNG via Kroki (POST: affidabile anche per diagrammi grandi)."""
+    code = (mermaid_code or "").strip()
+    if not code:
+        return None
+    for _post in (
+        lambda: requests.post(
+            "https://kroki.io/mermaid/png",
+            data=code.encode("utf-8"),
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+            timeout=60,
+        ),
+        lambda: requests.post(
+            "https://kroki.io/mermaid/png",
+            json={"diagram_source": code},
+            headers={"Content-Type": "application/json"},
+            timeout=60,
+        ),
+    ):
+        try:
+            r = _post()
+            if r.status_code == 200 and r.content.startswith(b"\x89PNG\r\n\x1a\n"):
+                return r.content
+        except Exception:
+            pass
+    return None
+
+
+def _xml_local_tag(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _parse_sitemap_xml(xml_text: str) -> tuple[list[str], list[str]]:
+    """Estrae (URL pagina, URL sitemap figlia) da sitemap XML — senza lxml (Cloud-friendly)."""
+    page_urls: list[str] = []
+    child_sitemaps: list[str] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return page_urls, child_sitemaps
+
+    if _xml_local_tag(root.tag) == "sitemapindex":
+        for sm in root:
+            if _xml_local_tag(sm.tag) != "sitemap":
+                continue
+            for ch in sm:
+                if _xml_local_tag(ch.tag) == "loc" and ch.text and ch.text.strip():
+                    child_sitemaps.append(ch.text.strip())
+    else:
+        for uel in root:
+            if _xml_local_tag(uel.tag) != "url":
+                continue
+            for ch in uel:
+                if _xml_local_tag(ch.tag) == "loc" and ch.text and ch.text.strip():
+                    page_urls.append(ch.text.strip())
+    return page_urls, child_sitemaps
+
+
 def fetch_sitemap_urls(base_url: str, session: requests.Session, base_domain: str) -> list[str]:
     """Try to fetch URLs from sitemap.xml or robots.txt sitemap reference."""
     urls: list[str] = []
@@ -682,36 +859,32 @@ def fetch_sitemap_urls(base_url: str, session: requests.Session, base_domain: st
     except Exception:
         pass
 
+    def collect_from_document(xml_text: str) -> None:
+        page_locs, child_locs = _parse_sitemap_xml(xml_text)
+        for raw in page_locs:
+            u = normalize_url(raw)
+            if is_same_domain(u, base_domain):
+                urls.append(u)
+        # Un livello di sitemap figlie (come la versione BeautifulSoup/lxml)
+        for child_url in child_locs:
+            try:
+                sub_resp = session.get(child_url, timeout=8)
+                if sub_resp.status_code != 200:
+                    continue
+                p2, _ = _parse_sitemap_xml(sub_resp.text)
+                for raw in p2:
+                    u = normalize_url(raw)
+                    if is_same_domain(u, base_domain):
+                        urls.append(u)
+            except Exception:
+                pass
+
     for sm_url in sitemap_locations:
         try:
             resp = session.get(sm_url, timeout=8)
             if resp.status_code != 200:
                 continue
-            soup = BeautifulSoup(resp.text, "lxml-xml")
-
-            for sitemap_tag in soup.find_all("sitemap"):
-                loc = sitemap_tag.find("loc")
-                if loc and loc.text.strip():
-                    try:
-                        sub_resp = session.get(loc.text.strip(), timeout=8)
-                        if sub_resp.status_code == 200:
-                            sub_soup = BeautifulSoup(sub_resp.text, "lxml-xml")
-                            for url_tag in sub_soup.find_all("url"):
-                                loc2 = url_tag.find("loc")
-                                if loc2 and loc2.text.strip():
-                                    u = normalize_url(loc2.text.strip())
-                                    if is_same_domain(u, base_domain):
-                                        urls.append(u)
-                    except Exception:
-                        pass
-
-            for url_tag in soup.find_all("url"):
-                loc = url_tag.find("loc")
-                if loc and loc.text.strip():
-                    u = normalize_url(loc.text.strip())
-                    if is_same_domain(u, base_domain):
-                        urls.append(u)
-
+            collect_from_document(resp.text)
             if urls:
                 break
         except Exception:
@@ -956,7 +1129,7 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
         if "text/html" not in content_type:
             return None
 
-        soup = BeautifulSoup(resp.text, "lxml")
+        soup = BeautifulSoup(resp.text, "html.parser")
         page_data = extract_page_data(url, resp, soup)
         page_data["_html"] = resp.text[:30_000]
         page_data["depth"] = depth
@@ -1278,7 +1451,7 @@ def build_mermaid(results: list[dict], base_url: str,
 
 def render_mermaid_html(mermaid_code: str, height: int = 600,
                         show_download: bool = False) -> str:
-    """Return a self-contained HTML page that renders a Mermaid diagram."""
+    """Return a self-contained HTML page that renders a Mermaid diagram (zoom + opz. download)."""
     download_btn_css = ""
     download_btn_html = ""
     download_btn_js = ""
@@ -1287,27 +1460,27 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
         download_btn_css = """
         #dl-btn {
             position: fixed; top: 12px; right: 16px; z-index: 100;
-            background: #4f46e5; color: #fff; border: none;
+            background: #FF6B35; color: #fff; border: none;
             padding: 8px 18px; border-radius: 8px; cursor: pointer;
             font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
-            transition: background .2s;
+            transition: background .2s, filter .2s;
         }
-        #dl-btn:hover { background: #4338ca; }
+        #dl-btn:hover { background: #e85d2a; filter: brightness(1.05); }
         """
-        download_btn_html = '<button id="dl-btn">Scarica JPEG</button>'
+        download_btn_html = '<button type="button" id="dl-btn">Scarica JPEG</button>'
         download_btn_js = """
         document.getElementById('dl-btn').addEventListener('click', function() {
-            var svg = document.querySelector('#diagram svg');
+            var svg = document.querySelector('#diagram-inner svg');
             if (!svg) return;
             var svgData = new XMLSerializer().serializeToString(svg);
             var canvas = document.createElement('canvas');
             var ctx = canvas.getContext('2d');
             var img = new Image();
             img.onload = function() {
-                var scale = 2;
-                canvas.width = img.width * scale;
-                canvas.height = img.height * scale;
+                var sc = 2;
+                canvas.width = img.width * sc;
+                canvas.height = img.height * sc;
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -1330,29 +1503,96 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            padding: 20px;
+            padding: 16px 20px 24px;
             background: #f9fafb;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }}
-        #diagram {{
-            overflow-x: auto;
-            background: #fff;
+        #zoom-toolbar {{
+            position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 101;
+            display: flex; align-items: center; gap: 6px;
+            background: #fff; border: 1px solid #eaedf0; border-radius: 10px;
+            padding: 6px 10px; box-shadow: 0 2px 8px rgba(0,0,0,.08);
+        }}
+        #zoom-toolbar button {{
+            font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
+            border: 1px solid #e5e7eb; background: #f3f4f6; color: #1f2937;
+            padding: 6px 12px; border-radius: 8px; cursor: pointer;
+            min-width: 40px;
+        }}
+        #zoom-toolbar button:hover {{ background: #e5e7eb; }}
+        #zoom-toolbar #zoom-pct {{ min-width: 52px; text-align: center; font-size: 12px; color: #4b5563; }}
+        #viewport {{
+            margin-top: 52px;
+            overflow: auto;
+            max-height: calc(100vh - 72px);
+            background: #eef0f3;
             border: 1px solid #eaedf0;
             border-radius: 12px;
-            padding: 32px;
+            padding: 16px;
+        }}
+        #zoom-inner {{
+            transform-origin: 0 0;
+            transition: transform 0.12s ease-out;
+            display: inline-block;
+        }}
+        #diagram-inner {{
+            background: #fff;
+            border-radius: 12px;
+            padding: 28px 32px;
+            border: 1px solid #eaedf0;
         }}
         .mermaid svg {{ height: auto; }}
         {download_btn_css}
     </style>
 </head>
 <body>
+    <div id="zoom-toolbar">
+        <button type="button" id="zoom-out" title="Zoom indietro">−</button>
+        <span id="zoom-pct">100%</span>
+        <button type="button" id="zoom-in" title="Zoom avanti">+</button>
+        <button type="button" id="zoom-reset" title="Ripristina 100%">Reset</button>
+    </div>
     {download_btn_html}
-    <div id="diagram">
-        <pre class="mermaid">
+    <div id="viewport">
+        <div id="zoom-inner">
+            <div id="diagram-inner">
+                <pre class="mermaid">
 {mermaid_code}
-        </pre>
+                </pre>
+            </div>
+        </div>
     </div>
     <script>
+        (function() {{
+            var scale = 1;
+            var inner = document.getElementById('zoom-inner');
+            var pct = document.getElementById('zoom-pct');
+            var vp = document.getElementById('viewport');
+            function apply() {{
+                inner.style.transform = 'scale(' + scale + ')';
+                pct.textContent = Math.round(scale * 100) + '%';
+            }}
+            document.getElementById('zoom-in').addEventListener('click', function() {{
+                scale = Math.min(scale + 0.2, 4);
+                apply();
+            }});
+            document.getElementById('zoom-out').addEventListener('click', function() {{
+                scale = Math.max(scale - 0.2, 0.25);
+                apply();
+            }});
+            document.getElementById('zoom-reset').addEventListener('click', function() {{
+                scale = 1;
+                apply();
+            }});
+            vp.addEventListener('wheel', function(e) {{
+                if (!e.ctrlKey) return;
+                e.preventDefault();
+                var d = e.deltaY < 0 ? 1.08 : 0.92;
+                scale = Math.min(Math.max(scale * d, 0.25), 4);
+                apply();
+            }}, {{ passive: false }});
+            apply();
+        }})();
         mermaid.initialize({{
             startOnLoad: true,
             theme: 'neutral',
@@ -1554,8 +1794,9 @@ def _ia_rows_from_url_tree(results: list[dict]) -> list[dict]:
 def generate_excel(
     results: list[dict],
     navigations: dict[str, list[dict]] | None = None,
+    mermaid_code: str = "",
 ) -> bytes:
-    """Workbook con Information Architecture (ordine menu / gerarchia) + statistiche."""
+    """Workbook: IA, Sitemap testuale come in app, immagine diagramma, statistiche."""
     wb = openpyxl.Workbook()
     url_to_page = {p["url"]: p for p in results}
 
@@ -1645,7 +1886,56 @@ def generate_excel(
         )
         ws1.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 55)
 
-    # ── Sheet 2: Stats by category ──
+    # ── Sheet: Sitemap (stesso albero del tab Sitemap) ──
+    ws_map = wb.create_sheet("Sitemap (albero)")
+    sm_headers = ["Navigazione / zona", "Albero (come in app)", "URL"]
+    for col_idx, h in enumerate(sm_headers, 1):
+        cell = ws_map.cell(row=1, column=col_idx, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    sm_rows = build_sitemap_tree_excel_rows(results, navigations)
+    for row_idx, row in enumerate(sm_rows, 2):
+        ws_map.cell(row=row_idx, column=1, value=_excel_safe_str(row["navigazione"], max_len=200))
+        ws_map.cell(row=row_idx, column=2, value=_excel_safe_str(row["albero"]))
+        ws_map.cell(row=row_idx, column=3, value=_excel_safe_str(row["url"]))
+        for c in range(1, 4):
+            ws_map.cell(row=row_idx, column=c).border = thin_border
+    ws_map.column_dimensions["A"].width = 30
+    ws_map.column_dimensions["B"].width = 76
+    ws_map.column_dimensions["C"].width = 56
+
+    # ── Sheet: Diagramma (PNG del Mermaid) ──
+    ws_diag = wb.create_sheet("Diagramma")
+    ws_diag.merge_cells("A1:F1")
+    c1 = ws_diag.cell(row=1, column=1, value="Diagramma gerarchico (equivalente al tab Diagramma nell'app).")
+    c1.font = Font(bold=True, size=12)
+    png_bytes = mermaid_to_png_bytes(mermaid_code)
+    if png_bytes:
+        try:
+            img = XLImage(io.BytesIO(png_bytes))
+            max_w = 920
+            if img.width > max_w:
+                ratio = max_w / float(img.width)
+                img.width = int(img.width * ratio)
+                img.height = int(img.height * ratio)
+            ws_diag.add_image(img, "A3")
+            # Altezza riga in punti (~px * 0.75)
+            ws_diag.row_dimensions[3].height = min(max(img.height * 0.75, 180), 380)
+        except Exception:
+            ws_diag.cell(row=3, column=1, value="Impossibile inserire l'immagine nel foglio.")
+    else:
+        ws_diag.cell(
+            row=3, column=1,
+            value=(
+                "Immagine non generata: codice Mermaid vuoto, rete non disponibile o servizio di rendering "
+                "non raggiungibile. Puoi usare il tab Diagramma nell'app o il file .md Mermaid in Esporta."
+            ),
+        )
+        ws_diag["A3"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws_diag.column_dimensions["A"].width = 22
+
+    # ── Sheet: Statistiche ──
     ws2 = wb.create_sheet("Statistiche")
     stat_headers = ["Categoria", "N° Pagine", "% del Totale", "Word Count Medio",
                     "Pagine con Meta Desc", "Pagine senza H1", "Errori 404"]
@@ -1985,11 +2275,17 @@ if st.session_state.results is not None:
 
     with tab_mermaid:
         st.markdown('<div class="section-title">Diagramma gerarchico</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Struttura del sito con layout orizzontale. Usa lo scroll per navigare e il bottone in alto a destra per scaricare come JPEG.</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-subtitle">Struttura del sito con layout orizzontale. '
+            "Usa <strong>+ / − / Reset</strong> in alto al centro per lo zoom, oppure "
+            "<strong>Ctrl + rotellina</strong> sul diagramma. Scroll nel riquadro per spostarti. "
+            "Il bottone arancione in alto a destra scarica JPEG.</div>",
+            unsafe_allow_html=True,
+        )
 
         mermaid_code = st.session_state.mermaid_code
         diagram_html = render_mermaid_html(mermaid_code, height=650, show_download=True)
-        components.html(diagram_html, height=650, scrolling=True)
+        components.html(diagram_html, height=720, scrolling=True)
 
         with st.expander("Mostra codice Mermaid"):
             st.code(mermaid_code, language="mermaid")
@@ -2126,11 +2422,13 @@ if st.session_state.results is not None:
         with col_xl:
             st.markdown("**Excel — Information Architecture**")
             st.caption(
-                "Foglio 1: **Information Architecture** (ordine menu / gerarchia, zone navigazione, percorsi). "
-                "Foglio 2: statistiche per categoria."
+                "Fogli: **Information Architecture**, **Sitemap (albero)** (come il tab Sitemap), "
+                "**Diagramma** (immagine PNG del grafico), **Statistiche**."
             )
             try:
-                _excel_bytes = generate_excel(results, st.session_state.navigations)
+                _excel_bytes = generate_excel(
+                    results, st.session_state.navigations, st.session_state.mermaid_code,
+                )
             except Exception as _xlsx_exc:
                 _excel_bytes = b""
                 st.error(f"Errore durante la creazione del file Excel: {_xlsx_exc}")
