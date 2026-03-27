@@ -14,7 +14,7 @@ Farlo a mano richiede ore. Si aprono pagine una per una, si copiano titoli in un
 
 UX Architect Pro automatizza questo processo. Si inserisce un URL, si sceglie quanto in profondita scansionare, e in pochi minuti si ottiene una mappa completa del sito che rispecchia la navigazione reale, con tutti i dati strutturali estratti e le pagine classificate per tipologia.
 
-La differenza rispetto ai crawler tradizionali e che UX Architect Pro parte dal menu di navigazione del sito, non dai link generici. Questo garantisce che la mappa prodotta corrisponda a come gli utenti navigano il sito, non a come i link sono distribuiti nel codice.
+La differenza rispetto ai crawler tradizionali e che UX Architect Pro parte dalle strutture di navigazione del sito (header, footer, sidebar), non solo dai link generici. Questo garantisce che la mappa prodotta corrisponda a come gli utenti navigano il sito, con terminologia da Information Architecture.
 
 ---
 
@@ -41,17 +41,26 @@ L'utente inserisce l'URL del sito e configura due parametri:
 
 ### 2. Crawl intelligente in 4 fasi
 
-Il crawler non segue i link alla cieca. Opera in quattro fasi con una strategia a priorita:
+Il crawler non segue i link alla cieca. Opera in quattro fasi con una strategia a priorita e **richieste HTTP concorrenti** (piu pagine scaricate in parallelo) per ridurre i tempi di attesa rispetto a uno scan sequenziale.
 
-**Fase 1 — Analisi del menu di navigazione.** Il sistema analizza la homepage e identifica il menu principale del sito leggendo la struttura `<nav> > <ul> > <li>` annidata. Distingue automaticamente il main menu dalla top bar e dal footer, identificando il `<nav>` piu rilevante dentro `<header>` o tramite classi CSS tipiche (main-menu, primary-menu, navbar, mega-menu). Estrae la gerarchia completa: voci di primo livello, sottomenu, sotto-sottomenu.
+**Fase 1 — Estrazione delle navigazioni.** Il sistema analizza la homepage e costruisce una o piu strutture ad albero leggendo `<nav>`, `<ul>/<li>` annidati e pattern tipici. Le sezioni sono etichettate con terminologia professionale:
+
+| Etichetta | Cosa rappresenta |
+|---|---|
+| **Main Navigation (Header)** | Menu principale nel `<header>` (il `<nav>` con piu link, o quello con classi tipo main, primary, navbar) |
+| **Utility Navigation (Header)** | Eventuale secondo `<nav>` nell'header (es. lingua, login, link rapidi) |
+| **Secondary Navigation (Footer)** | Link nel `<footer>` (`<nav>` o liste `<ul>`) |
+| **Sidebar Navigation** | Contenuto in `<aside>` o div con classi sidebar / side-nav |
+
+I wrapper "colonna" dei mega-menu (classi tipo `column`, `mega-col`) vengono appiattiti: le voci figlie compaiono direttamente sotto la voce parent, senza nodi fittizi.
 
 **Fase 2 — Sitemap XML.** Cerca la sitemap.xml del sito (anche tramite robots.txt) e la usa come rete di sicurezza per non perdere pagine importanti che potrebbero non essere linkate nel menu.
 
-**Fase 3 — Scansione delle voci di navigazione (priorita alta).** Scansiona prima tutte le pagine trovate nel menu principale e nei sottomenu. Per ognuna, estrae anche i link di navigazione locali (sottomenu di sezione) e li aggiunge alla coda prioritaria.
+**Fase 3 — Scansione prioritaria.** Scansiona prima tutte le URL raccolte dalle navigazioni (header, footer, sidebar). I link scoperti sulle pagine visitate entrano in coda prioritaria; i link "di contenuto" non prioritari finiscono nella coda secondaria.
 
-**Fase 4 — Pagine secondarie.** Solo dopo aver coperto l'intero menu, scansiona le pagine secondarie (da sitemap e link nei contenuti) con il budget rimanente.
+**Fase 4 — Pagine secondarie.** Solo dopo aver esaurito la coda prioritaria (entro il limite di pagine e profondita), elabora sitemap e altri link dalla coda secondaria.
 
-Questo approccio garantisce che le voci del menu vengano sempre mappate per prime, indipendentemente da quante pagine secondarie esistono sul sito.
+**Prestazioni.** Il download usa piu worker in parallelo, pool di connessioni dedicato, code `deque` e timeout di rete contenuti, cosi una scansione su decine o centinaia di pagine richiede molto meno tempo rispetto a una richiesta alla volta.
 
 Durante il crawl l'app mostra in tempo reale:
 
@@ -108,13 +117,15 @@ Distribuzione delle pagine per categoria con percentuali, word count medio, e in
 
 ### Diagramma visuale
 
-Mappa interattiva del sito renderizzata con Mermaid.js direttamente nell'app. Il diagramma rispecchia la gerarchia reale del menu di navigazione: le voci di primo livello si espandono nei rispettivi sottomenu, con i titoli effettivi delle pagine come etichette dei nodi. Ogni nodo e colorato in base alla categoria di appartenenza. Il layout e orizzontale (left-to-right) per facilitare la lettura. Le pagine non presenti nel menu sono raggruppate sotto "Altre pagine".
+Mappa interattiva del sito renderizzata con Mermaid.js direttamente nell'app. Il diagramma rispecchia le **navigazioni estratte**: ogni tipo (Main Navigation (Header), Secondary Navigation (Footer), ecc.) appare come nodo intermedio tra la root e le voci, con stile distinto; sotto ogni sezione si espandono le voci e i sottomenu con i **titoli effettivi delle pagine** come etichette. Ogni nodo pagina e colorato in base alla categoria. Il layout del flowchart e **orizzontale** (left-to-right), senza schiacciare il grafico nel contenitore, cosi la lettura segue l'asse orizzontale. Un pulsante **Scarica JPEG** (nell'iframe del diagramma) esporta l'immagine del grafico in alta risoluzione per slide o documenti.
 
-Se il sito non ha un menu `<nav>` riconoscibile, il diagramma usa come fallback la gerarchia dei percorsi URL.
+Le pagine crawlate ma assenti da tutte le navigazioni sono raggruppate sotto **Altre pagine**.
 
-### Sitemap ad albero
+Se il sito non espone navigazioni riconoscibili, il diagramma usa come fallback la gerarchia dei percorsi URL.
 
-Rappresentazione testuale della struttura del sito basata sul menu di navigazione reale. Mostra le voci come le vedrebbe un utente, con la gerarchia parent-child dei sottomenu, non come slug tecnici degli URL. Include anche le pagine non presenti nel menu come sezione separata.
+### Sitemap / Information Architecture
+
+Nel tab **Sitemap** la struttura e introdotta con il titolo **Information Architecture**. Ogni navigazione estratta ha il **suo blocco testuale** con l'etichetta professionale (es. Main Navigation (Header)) e l'albero delle voci come le vedrebbe un utente, con gerarchia parent-child; le pagine non coperte da nessuna navigazione compaiono in una sezione **Altre pagine**. Se non si riesce a estrarre navigazioni, la vista torna alla gerarchia basata sui percorsi URL.
 
 ---
 
@@ -127,11 +138,11 @@ Rappresentazione testuale della struttura del sito basata sul menu di navigazion
 
 ### Mermaid.js
 
-Codice del diagramma gerarchico pronto da incollare in Notion, Confluence, GitHub o qualsiasi tool che supporta Mermaid.
+Dal tab **Esporta** si puo scaricare il codice del diagramma in formato Markdown con blocco Mermaid, pronto per Notion, Confluence, GitHub o altri renderer.
 
-### Figma Export
+### Immagine del diagramma
 
-Versione del diagramma ottimizzata per FigJam (layout orizzontale, testo quotato, senza emoji), esportabile direttamente nel workspace Figma tramite integrazione con l'assistente AI. L'app salva un file di configurazione che l'assistente usa per creare il diagramma in FigJam con un singolo comando.
+Dal tab **Diagramma**, il pulsante **Scarica JPEG** genera un file immagine del grafico renderizzato (utile per presentazioni e report senza dipendere da tool esterni).
 
 ---
 
@@ -147,11 +158,11 @@ L'interfaccia segue un approccio minimalista e professionale ispirato ai tool di
 |---|---|
 | Linguaggio | Python |
 | Framework UI | Streamlit |
+| Crawl | `requests` (Session + pool connessioni), `concurrent.futures` per fetch paralleli |
 | Parser HTML | BeautifulSoup + lxml |
 | Parser Sitemap | lxml-xml |
-| Diagrammi | Mermaid.js (rendering client-side) |
+| Diagrammi | Mermaid.js (rendering client-side), export JPEG via canvas nel browser |
 | Export Excel | openpyxl |
-| Integrazione Figma | Figma MCP (generate_diagram) |
 | Hosting | Streamlit Community Cloud |
 
 ---
