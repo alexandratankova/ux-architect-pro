@@ -231,6 +231,21 @@ st.markdown("""
         margin: 0 auto;
         line-height: 1.6;
     }
+
+    .sidebar-source-hint {
+        font-size: 0.8rem;
+        color: #6b7280;
+        line-height: 1.45;
+        margin: 0 0 0.75rem 0;
+    }
+    .sidebar-panel-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.45px;
+        color: #9ca3af;
+        margin: 0 0 0.35rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1507,17 +1522,88 @@ def generate_excel(
 # SIDEBAR
 # ═════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("### Configurazione")
-    start_url = st.text_input(
-        "URL di partenza",
-        placeholder="https://www.example.com",
-        help="Inserisci l'URL completo del sito da analizzare",
+    st.markdown("### Fonte dati")
+    st.markdown(
+        '<p class="sidebar-source-hint">Inserisci un URL per un nuovo crawl oppure '
+        "carica un rapporto <strong>.json</strong> esportato dalla scheda Esporta.</p>",
+        unsafe_allow_html=True,
     )
-    max_depth = st.slider("Profondita massima", 1, 10, 3, help="Profondità massima di navigazione")
-    max_pages = st.slider("Pagine massime", 10, 500, 100, step=10, help="Numero massimo di pagine da scansionare")
+
+    _source = st.radio(
+        "Modalita",
+        options=["url", "json"],
+        format_func=lambda x: (
+            "Nuovo crawl da URL" if x == "url" else "Rapporto condiviso (.json)"
+        ),
+        key="sidebar_data_source",
+        label_visibility="collapsed",
+    )
+
+    start_url = ""
+    max_depth = 3
+    max_pages = 100
+    run_crawl = False
+
+    if _source == "url":
+        st.markdown('<p class="sidebar-panel-label">URL del sito</p>', unsafe_allow_html=True)
+        start_url = st.text_input(
+            "URL di partenza",
+            placeholder="https://www.example.com",
+            help="URL completo da cui parte la scansione",
+            label_visibility="collapsed",
+            key="sidebar_url_input",
+        )
+        max_depth = st.slider(
+            "Profondita massima", 1, 10, 3,
+            help="Profondità massima di navigazione",
+            key="sidebar_max_depth",
+        )
+        max_pages = st.slider(
+            "Pagine massime", 10, 500, 100, step=10,
+            help="Numero massimo di pagine da scansionare",
+            key="sidebar_max_pages",
+        )
+        st.markdown("---")
+        run_crawl = st.button(
+            "Avvia Crawl", type="primary", use_container_width=True, key="btn_run_crawl",
+        )
+    else:
+        st.markdown('<p class="sidebar-panel-label">File rapporto</p>', unsafe_allow_html=True)
+        st.caption(
+            "Formato esportato da **Esporta → Scarica rapporto condivisibile (.json)**"
+        )
+        _up_share = st.file_uploader(
+            "Carica file JSON",
+            type=["json"],
+            help="Ricostruisce Sitemap, Diagramma, Tabella e export senza rifare il crawl",
+            label_visibility="collapsed",
+            key="sidebar_json_upload",
+        )
+        _import_clicked = st.button(
+            "Carica rapporto",
+            type="primary",
+            use_container_width=True,
+            disabled=_up_share is None,
+            key="btn_import_share_json",
+        )
+        if _import_clicked and _up_share is not None:
+            try:
+                _raw = _up_share.getvalue()
+                _data = json.loads(_raw.decode("utf-8"))
+                if _data.get("v") != SHARE_PACK_VERSION:
+                    st.error("Versione del file non supportata.")
+                else:
+                    apply_share_pack(_data)
+                    st.session_state._loaded_share_token = None
+                    if "r" in st.query_params:
+                        del st.query_params["r"]
+                    st.success("Rapporto caricato.")
+                    st.rerun()
+            except Exception as _exc:
+                st.error(f"File non valido: {_exc}")
 
     st.markdown("---")
-    st.markdown("### Categorie")
+    st.markdown("### Legenda categorie")
     for cat, meta in CATEGORIES.items():
         st.markdown(
             f'<div class="legend-item">'
@@ -1525,34 +1611,6 @@ with st.sidebar:
             f'{cat}</div>',
             unsafe_allow_html=True,
         )
-
-    st.markdown("---")
-    run_crawl = st.button("Avvia Crawl", type="primary", use_container_width=True)
-
-    st.markdown("---")
-    st.markdown("### Apri rapporto condiviso")
-    _up_share = st.file_uploader(
-        "File .json da un collega",
-        type=["json"],
-        help="Generato dalla scheda Esporta — Condividi",
-    )
-    if _up_share is not None and st.button(
-        "Importa rapporto", key="btn_import_share_json", use_container_width=True,
-    ):
-        try:
-            _raw = _up_share.read()
-            _data = json.loads(_raw.decode("utf-8"))
-            if _data.get("v") != SHARE_PACK_VERSION:
-                st.error("Versione del file non supportata.")
-            else:
-                apply_share_pack(_data)
-                st.session_state._loaded_share_token = None
-                if "r" in st.query_params:
-                    del st.query_params["r"]
-                st.success("Rapporto caricato.")
-                st.rerun()
-        except Exception as _exc:
-            st.error(f"Impossibile leggere il file: {_exc}")
 
 
 # ═════════════════════════════════════════════
@@ -1870,7 +1928,8 @@ if st.session_state.results is not None:
 
         st.markdown("##### Condividi il rapporto")
         st.caption(
-            "Altri possono vedere lo stesso risultato aprendo un link oppure importando il file .json dalla sidebar."
+            "Altri possono vedere lo stesso risultato aprendo un link oppure importando il file .json "
+            "(sidebar → Rapporto condiviso)."
         )
         st.download_button(
             "Scarica rapporto condivisibile (.json)",
@@ -1940,6 +1999,6 @@ else:
     <div class="empty-state">
         <h2>Configura e avvia il crawl</h2>
         <p>Inserisci l'URL del sito nella sidebar, seleziona la profondita e il numero massimo di pagine, poi clicca <b>Avvia Crawl</b>.</p>
-        <p style="margin-top:1rem;opacity:.85">Oppure <b>importa un rapporto .json</b> condiviso da un collega (sezione in basso nella sidebar).</p>
+        <p style="margin-top:1rem;opacity:.85">Oppure nella sidebar scegli <b>Rapporto condiviso (.json)</b> e carica il file esportato da un collega.</p>
     </div>
     """, unsafe_allow_html=True)
