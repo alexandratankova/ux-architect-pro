@@ -1568,7 +1568,8 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
         download_btn_css = """
         #dl-actions {
             position: fixed; top: 12px; right: 16px; z-index: 100;
-            display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+            display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px;
+            align-items: center; justify-content: flex-end;
         }
         #dl-actions button {
             background: #111827; color: #fff; border: none;
