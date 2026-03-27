@@ -298,10 +298,13 @@ def extract_all_links(soup: BeautifulSoup, current_url: str, base_domain: str) -
     return _collect_links(soup.find_all("a", href=True), current_url, base_domain)
 
 
-def extract_menu_hierarchy(soup: BeautifulSoup, current_url: str, base_domain: str) -> list[dict]:
-    """Parse the main navigation <ul>/<li> nesting into a tree structure.
+def extract_navigations(soup: BeautifulSoup, current_url: str,
+                        base_domain: str) -> dict[str, list[dict]]:
+    """Extract all navigation structures from the page.
 
-    Returns a list of dicts: {"label": str, "url": str, "children": [...]}
+    Returns a dict mapping professional labels to their menu trees:
+        {"Main Navigation (Header)": [...], "Secondary Navigation (Footer)": [...], ...}
+    Each tree item: {"label": str, "url": str, "children": [...]}
     """
     def _resolve(href: str) -> str:
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
@@ -310,12 +313,6 @@ def extract_menu_hierarchy(soup: BeautifulSoup, current_url: str, base_domain: s
         return u if is_same_domain(u, base_domain) else ""
 
     def _is_column_wrapper(li_el) -> bool:
-        """Detect mega-menu column containers that aren't real menu items.
-
-        Only returns True for purely structural wrappers: <li> elements
-        whose CSS class explicitly marks them as columns AND that carry
-        no visible label text of their own.
-        """
         classes = " ".join(li_el.get("class", [])).lower()
         is_col_class = any(k in classes for k in (
             "column", "mega-col", "menu-col",
@@ -359,54 +356,120 @@ def extract_menu_hierarchy(soup: BeautifulSoup, current_url: str, base_domain: s
             items.append({"label": label, "url": url, "children": children})
         return items
 
-    # ── Identify the main nav (largest <nav> inside <header>) ──
-    main_nav = None
+    def _parse_nav_element(nav_el) -> list[dict]:
+        top_ul = nav_el.find("ul")
+        if top_ul:
+            return _parse_ul(top_ul)
+        items: list[dict] = []
+        for a in nav_el.find_all("a", href=True):
+            label = a.get_text(strip=True)
+            url = _resolve(a.get("href", ""))
+            if label:
+                items.append({"label": label, "url": url, "children": []})
+        return items
+
+    navigations: dict[str, list[dict]] = {}
+    used_navs: set[int] = set()
+
+    # ── Main Navigation (Header) ──
     header = soup.find("header")
     if header:
         header_navs = header.find_all("nav")
         if header_navs:
             main_nav = max(header_navs, key=lambda n: len(n.find_all("a")))
+            items = _parse_nav_element(main_nav)
+            if items:
+                navigations["Main Navigation (Header)"] = items
+                used_navs.add(id(main_nav))
+            for hn in header_navs:
+                if id(hn) != id(main_nav) and id(hn) not in used_navs:
+                    hi = _parse_nav_element(hn)
+                    if hi:
+                        navigations["Utility Navigation (Header)"] = hi
+                        used_navs.add(id(hn))
+                        break
 
-    if not main_nav:
+    if "Main Navigation (Header)" not in navigations:
         for candidate in soup.find_all("nav"):
+            if id(candidate) in used_navs:
+                continue
             role = (candidate.get("aria-label") or candidate.get("role") or "").lower()
             classes = " ".join(candidate.get("class", [])).lower()
-            if any(k in classes for k in ("main", "primary", "site-nav", "navbar")):
-                main_nav = candidate
-                break
-            if any(k in role for k in ("main", "primary", "navigation")):
-                main_nav = candidate
-                break
+            if any(k in classes for k in ("main", "primary", "site-nav", "navbar")) or \
+               any(k in role for k in ("main", "primary", "navigation")):
+                items = _parse_nav_element(candidate)
+                if items:
+                    navigations["Main Navigation (Header)"] = items
+                    used_navs.add(id(candidate))
+                    break
 
-    if not main_nav:
-        all_navs = soup.find_all("nav")
+    if "Main Navigation (Header)" not in navigations:
+        all_navs = [n for n in soup.find_all("nav") if id(n) not in used_navs]
         if all_navs:
-            main_nav = max(all_navs, key=lambda n: len(n.find_all("a")))
+            best = max(all_navs, key=lambda n: len(n.find_all("a")))
+            items = _parse_nav_element(best)
+            if items:
+                navigations["Main Navigation (Header)"] = items
+                used_navs.add(id(best))
 
-    if not main_nav:
-        return []
+    # ── Secondary Navigation (Footer) ──
+    footer = soup.find("footer")
+    if footer:
+        footer_navs = footer.find_all("nav")
+        if footer_navs:
+            for fn in footer_navs:
+                if id(fn) not in used_navs:
+                    items = _parse_nav_element(fn)
+                    if items:
+                        navigations["Secondary Navigation (Footer)"] = items
+                        used_navs.add(id(fn))
+                        break
+        if "Secondary Navigation (Footer)" not in navigations:
+            footer_uls = footer.find_all("ul", recursive=True)
+            all_footer_items: list[dict] = []
+            for ul in footer_uls:
+                if ul.find_parent("nav") and id(ul.find_parent("nav")) in used_navs:
+                    continue
+                all_footer_items.extend(_parse_ul(ul))
+            if all_footer_items:
+                navigations["Secondary Navigation (Footer)"] = all_footer_items
 
-    top_ul = main_nav.find("ul")
-    if top_ul:
-        return _parse_ul(top_ul)
+    # ── Sidebar Navigation ──
+    sidebar_tags = soup.find_all(["aside", "div"], class_=re.compile(
+        r"(sidebar|side-nav|side-menu|lateral)", re.I
+    ))
+    for sb in sidebar_tags:
+        sb_nav = sb.find("nav")
+        el = sb_nav if sb_nav else sb
+        if id(el) in used_navs:
+            continue
+        items = _parse_nav_element(el) if el.name == "nav" else []
+        if not items:
+            sb_ul = el.find("ul")
+            if sb_ul:
+                items = _parse_ul(sb_ul)
+        if items:
+            navigations["Sidebar Navigation"] = items
+            used_navs.add(id(el))
+            break
 
-    items: list[dict] = []
-    for a in main_nav.find_all("a", href=True):
-        label = a.get_text(strip=True)
-        url = _resolve(a.get("href", ""))
-        if label:
-            items.append({"label": label, "url": url, "children": []})
-    return items
+    return navigations
 
 
-def flatten_menu_urls(menu: list[dict]) -> list[str]:
-    """Recursively collect all URLs from a menu hierarchy."""
-    urls: list[str] = []
-    for item in menu:
-        if item["url"]:
-            urls.append(item["url"])
-        urls.extend(flatten_menu_urls(item["children"]))
-    return urls
+def flatten_nav_urls(navigations: dict[str, list[dict]]) -> list[str]:
+    """Collect all URLs from all navigation sections."""
+    def _flatten(items: list[dict]) -> list[str]:
+        urls: list[str] = []
+        for item in items:
+            if item["url"]:
+                urls.append(item["url"])
+            urls.extend(_flatten(item["children"]))
+        return urls
+
+    all_urls: list[str] = []
+    for items in navigations.values():
+        all_urls.extend(_flatten(items))
+    return all_urls
 
 
 def fetch_sitemap_urls(base_url: str, session: requests.Session, base_domain: str) -> list[str]:
@@ -699,18 +762,18 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
             add_log(f"Errore: {url} — {exc}", "err")
         return None
 
-    menu_hierarchy: list[dict] = []
+    navigations: dict[str, list[dict]] = {}
 
-    # ── Phase 1: Homepage + extract main navigation hierarchy ──
+    # ── Phase 1: Homepage + extract navigation hierarchies ──
     add_log(f"Avvio crawl di <b>{start_url}</b>")
-    add_log("Fase 1 — Analisi homepage e menu di navigazione", "info")
+    add_log("Fase 1 — Analisi homepage e strutture di navigazione", "info")
 
     home_soup = process_page(start_url, 0)
 
     if home_soup:
-        menu_hierarchy = extract_menu_hierarchy(home_soup, start_url, base_domain)
+        navigations = extract_navigations(home_soup, start_url, base_domain)
 
-        if menu_hierarchy:
+        if navigations:
             def _log_menu(items: list[dict], indent: int = 0):
                 for item in items:
                     prefix = "&nbsp;&nbsp;" * indent
@@ -718,18 +781,13 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
                     if item["children"]:
                         _log_menu(item["children"], indent + 1)
 
-            top_count = len(menu_hierarchy)
-            total_count = len(flatten_menu_urls(menu_hierarchy))
-            add_log(
-                f"Menu principale: <b>{top_count}</b> voci top-level, "
-                f"<b>{total_count}</b> link totali",
-                "ok",
-            )
-            _log_menu(menu_hierarchy)
+            for nav_name, nav_items in navigations.items():
+                add_log(f"<b>{nav_name}</b>: {len(nav_items)} voci top-level", "ok")
+                _log_menu(nav_items)
 
-            all_menu_urls = flatten_menu_urls(menu_hierarchy)
-            nav_urls.update(all_menu_urls)
-            for nav_link in all_menu_urls:
+            all_nav_urls = flatten_nav_urls(navigations)
+            nav_urls.update(all_nav_urls)
+            for nav_link in all_nav_urls:
                 if nav_link not in visited:
                     priority_queue.append((nav_link, 1))
         else:
@@ -789,7 +847,7 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
 
     add_log(f"Crawl completato — <b>{len(results)}</b> pagine analizzate", "ok")
     progress_bar.progress(1.0, text="Crawl completato!")
-    return results, errors_404, menu_hierarchy
+    return results, errors_404, navigations
 
 
 # ─────────────────────────────────────────────
@@ -854,12 +912,11 @@ def _url_to_page(results: list[dict]) -> dict[str, dict]:
 
 
 def build_mermaid(results: list[dict], base_url: str,
-                  menu_hierarchy: list[dict] | None = None) -> str:
-    """Build a Mermaid LR flowchart.
+                  navigations: dict[str, list[dict]] | None = None) -> str:
+    """Build a Mermaid LR flowchart grouped by navigation sections.
 
-    If menu_hierarchy is available, use it as the primary structure so the
-    diagram mirrors the site's actual navigation.  Pages not in the menu
-    are appended under an 'Altre pagine' group.
+    Each navigation (Main, Footer, Sidebar…) gets its own sub-tree
+    so the diagram mirrors the site's actual IA.
     """
     url_to_page = _url_to_page(results)
     make_id = _make_mermaid_id_factory()
@@ -888,7 +945,7 @@ def build_mermaid(results: list[dict], base_url: str,
     if home_page:
         rendered_urls.add(home_page["url"])
     node_count = 0
-    max_nodes = 80
+    max_nodes = 100
 
     def _add_menu_node(item: dict, parent_id: str):
         nonlocal node_count
@@ -914,9 +971,18 @@ def build_mermaid(results: list[dict], base_url: str,
         for child in item.get("children", []):
             _add_menu_node(child, nid)
 
-    if menu_hierarchy:
-        for item in menu_hierarchy:
-            _add_menu_node(item, root_id)
+    if navigations:
+        for nav_name, nav_items in navigations.items():
+            section_id = make_id(nav_name)
+            safe_name = nav_name.replace('"', "'")
+            lines.append(f'    {section_id}["{safe_name}"]')
+            lines.append(f"    {root_id} --> {section_id}")
+            style_defs.append(
+                f"    style {section_id} fill:#e8eaf6,stroke:#5c6bc0,"
+                f"stroke-width:2px,color:#283593,font-weight:bold"
+            )
+            for item in nav_items:
+                _add_menu_node(item, section_id)
 
         remaining = [p for p in results if p["url"] not in rendered_urls
                      and p.get("status_code", 200) != 404]
@@ -1181,7 +1247,7 @@ with st.sidebar:
 if "results" not in st.session_state:
     st.session_state.results = None
     st.session_state.errors_404 = []
-    st.session_state.menu_hierarchy = []
+    st.session_state.navigations = {}
     st.session_state.mermaid_code = ""
 
 if run_crawl:
@@ -1196,7 +1262,7 @@ if run_crawl:
         status_text = st.empty()
         log_container = st.empty()
 
-        results, errors_404, menu_hierarchy = crawl_site(
+        results, errors_404, navigations = crawl_site(
             start_url, max_depth, max_pages,
             progress_bar, log_container, status_text,
         )
@@ -1206,8 +1272,8 @@ if run_crawl:
 
         st.session_state.results = results
         st.session_state.errors_404 = errors_404
-        st.session_state.menu_hierarchy = menu_hierarchy
-        st.session_state.mermaid_code = build_mermaid(results, start_url, menu_hierarchy)
+        st.session_state.navigations = navigations
+        st.session_state.mermaid_code = build_mermaid(results, start_url, navigations)
         st.rerun()
 
 
@@ -1343,54 +1409,61 @@ if st.session_state.results is not None:
             st.code(mermaid_code, language="mermaid")
 
     with tab_sitemap:
-        st.markdown('<div class="section-title">Sitemap</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Information Architecture</div>', unsafe_allow_html=True)
 
-        menu_hierarchy = st.session_state.menu_hierarchy
+        navigations = st.session_state.navigations
         url_to_page = {p["url"]: p for p in results}
 
-        if menu_hierarchy:
+        def render_menu_tree(items: list[dict], prefix: str = ""):
+            lines_out: list[str] = []
+            for i, item in enumerate(items):
+                last = i == len(items) - 1
+                connector = "└── " if last else "├── "
+                page = url_to_page.get(item["url"]) if item["url"] else None
+                label = item["label"]
+                if page and page.get("title"):
+                    label = page["title"]
+                lines_out.append(f"{prefix}{connector}{label}")
+                extension = "    " if last else "│   "
+                if item.get("children"):
+                    lines_out.extend(render_menu_tree(item["children"], prefix + extension))
+            return lines_out
+
+        if navigations:
             st.markdown(
                 '<div class="section-subtitle">'
-                'Struttura basata sul menu di navigazione del sito'
+                'Struttura delle navigazioni estratte dal sito'
                 '</div>',
                 unsafe_allow_html=True,
             )
-
-            def render_menu_tree(items: list[dict], prefix: str = ""):
-                lines_out: list[str] = []
-                for i, item in enumerate(items):
-                    last = i == len(items) - 1
-                    connector = "└── " if last else "├── "
-                    page = url_to_page.get(item["url"]) if item["url"] else None
-                    label = item["label"]
-                    if page and page.get("title"):
-                        label = page["title"]
-                    lines_out.append(f"{prefix}{connector}{label}")
-                    extension = "    " if last else "│   "
-                    if item.get("children"):
-                        lines_out.extend(render_menu_tree(item["children"], prefix + extension))
-                return lines_out
 
             home_page = url_to_page.get(normalize_url(
                 results[0]["url"].split(urlparse(results[0]["url"]).path)[0] + "/"
             ))
             root_title = (home_page.get("title") if home_page else None) or urlparse(results[0]["url"]).netloc
-            tree_text = f"{root_title}\n"
-            tree_text += "\n".join(render_menu_tree(menu_hierarchy))
 
-            menu_urls = set(flatten_menu_urls(menu_hierarchy))
+            for nav_name, nav_items in navigations.items():
+                tree_text = f"{nav_name}\n"
+                tree_text += "\n".join(render_menu_tree(nav_items))
+                st.code(tree_text, language=None)
+
+            all_nav_urls = set(flatten_nav_urls(navigations))
+            home_url = normalize_url(
+                results[0]["url"].split(urlparse(results[0]["url"]).path)[0] + "/"
+            )
             remaining = [p for p in results
-                         if p["url"] not in menu_urls
+                         if p["url"] not in all_nav_urls
                          and p.get("status_code", 200) != 404
-                         and p["url"] != normalize_url(results[0]["url"].split(urlparse(results[0]["url"]).path)[0] + "/")]
+                         and p["url"] != home_url]
             if remaining:
-                tree_text += f"\n└── Altre pagine ({len(remaining)})"
+                tree_text = f"Altre pagine ({len(remaining)})\n"
+                tree_lines: list[str] = []
                 for j, page in enumerate(remaining[:30]):
-                    last = j == len(remaining[:30]) - 1
-                    conn = "    └── " if last else "    ├── "
-                    tree_text += f"\n{conn}{page.get('title') or page['url']}"
-
-            st.code(tree_text, language=None)
+                    last = j == min(len(remaining), 30) - 1
+                    conn = "└── " if last else "├── "
+                    tree_lines.append(f"{conn}{page.get('title') or page['url']}")
+                tree_text += "\n".join(tree_lines)
+                st.code(tree_text, language=None)
 
         else:
             st.markdown(
