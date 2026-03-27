@@ -246,6 +246,173 @@ st.markdown("""
         color: #9ca3af;
         margin: 0 0 0.35rem 0;
     }
+
+    /* Accento arancione — CTA e controlli primari (allinea al theme) */
+    :root {
+        --ux-accent: #FF6B35;
+        --ux-accent-hover: #E85A28;
+        --ux-accent-soft: rgba(255, 107, 53, 0.12);
+    }
+
+    div[data-testid="stSidebar"] button[kind="primary"],
+    section[data-testid="stSidebar"] button[kind="primary"],
+    .stButton > button[kind="primary"] {
+        background-color: var(--ux-accent) !important;
+        border-color: var(--ux-accent) !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stSidebar"] button[kind="primary"]:hover,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover,
+    .stButton > button[kind="primary"]:hover {
+        background-color: var(--ux-accent-hover) !important;
+        border-color: var(--ux-accent-hover) !important;
+    }
+
+    /* Slider fill & radio selected */
+    div[data-testid="stSlider"] [role="slider"] {
+        background-color: var(--ux-accent) !important;
+    }
+    div[data-baseweb="slider"] [data-testid="stThumbValue"] {
+        color: var(--ux-accent);
+    }
+
+    label[data-testid="stWidgetLabel"] a {
+        color: var(--ux-accent);
+    }
+
+    /* Hero vuoto — illustrazione tipo Visily: pulita, IA / struttura */
+    .ux-empty-hero {
+        text-align: center;
+        padding: 1rem 1rem 3.5rem;
+        max-width: 640px;
+        margin: 0 auto;
+    }
+    .ux-empty-illustration {
+        margin: 0 auto 2rem;
+        max-width: 460px;
+        animation: uxHeroFloat 5s ease-in-out infinite;
+    }
+    @keyframes uxHeroFloat {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+    }
+    .ux-empty-hero h2 {
+        color: #111827;
+        font-weight: 800;
+        font-size: 1.65rem;
+        letter-spacing: -0.5px;
+        margin: 0 0 0.5rem 0;
+        line-height: 1.25;
+    }
+    .ux-empty-hero .ux-accent-bar {
+        width: 48px;
+        height: 4px;
+        background: linear-gradient(90deg, var(--ux-accent), #ffb38a);
+        border-radius: 4px;
+        margin: 0 auto 1.25rem;
+        animation: uxBarShine 3s ease-in-out infinite;
+    }
+    @keyframes uxBarShine {
+        0%, 100% { opacity: 1; transform: scaleX(1); }
+        50% { opacity: 0.85; transform: scaleX(1.08); }
+    }
+    .ux-empty-lead {
+        color: #6b7280;
+        font-size: 1rem;
+        line-height: 1.65;
+        margin: 0 auto 1.5rem;
+        max-width: 420px;
+    }
+    .ux-empty-lead strong { color: #374151; }
+    .ux-empty-steps {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.65rem 1rem;
+        font-size: 0.88rem;
+        color: #6b7280;
+    }
+    .ux-step {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: #f9fafb;
+        border: 1px solid #eaedf0;
+        border-radius: 999px;
+        padding: 0.35rem 0.85rem;
+    }
+    .ux-step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--ux-accent-soft);
+        color: var(--ux-accent);
+        font-weight: 700;
+        font-size: 0.72rem;
+    }
+
+    /* SVG interno */
+    .ux-illu-svg .ux-line {
+        fill: none;
+        stroke: #d1d5db;
+        stroke-width: 2;
+        stroke-linecap: round;
+        opacity: 0.9;
+    }
+    .ux-illu-svg .ux-line-accent {
+        stroke: var(--ux-accent);
+        stroke-dasharray: 8 6;
+        animation: uxDashMove 2.5s linear infinite;
+        opacity: 0.65;
+    }
+    @keyframes uxDashMove {
+        to { stroke-dashoffset: -28; }
+    }
+    .ux-illu-svg .ux-node {
+        fill: #ffffff;
+        stroke: #e5e7eb;
+        stroke-width: 2;
+    }
+    .ux-illu-svg .ux-node-core {
+        fill: var(--ux-accent);
+        stroke: #fff;
+        stroke-width: 2;
+        animation: uxNodePulse 2.8s ease-in-out infinite;
+    }
+    @keyframes uxNodePulse {
+        0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+        50% { filter: drop-shadow(0 4px 12px rgba(255, 107, 53, 0.35)); }
+    }
+    .ux-illu-svg .ux-node-sat {
+        animation: uxSatBob 3.2s ease-in-out infinite;
+    }
+    .ux-illu-svg .ux-sat-b { animation-delay: 0.45s; }
+    .ux-illu-svg .ux-sat-c { animation-delay: 0.9s; }
+    @keyframes uxSatBob {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-4px); }
+    }
+    .ux-illu-svg .ux-browser {
+        fill: #ffffff;
+        stroke: #eaedf0;
+        stroke-width: 1.5;
+    }
+    .ux-illu-svg .ux-browser-bar {
+        fill: #f3f4f6;
+    }
+    .ux-illu-svg .ux-dot {
+        animation: uxDotBlink 2.2s ease-in-out infinite;
+    }
+    .ux-illu-svg .ux-dot:nth-of-type(2) { animation-delay: 0.3s; }
+    .ux-illu-svg .ux-dot:nth-of-type(3) { animation-delay: 0.6s; }
+    @keyframes uxDotBlink {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 1; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -255,7 +422,8 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>UX Architect Pro</h1>
-    <p>Crawl, analizza e categorizza la struttura di qualsiasi sito web</p>
+    <p>Crawl, analizza e categorizza la struttura di qualsiasi sito web —
+    <span style="color:#FF6B35;font-weight:600;">information architecture</span> in un colpo solo.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1996,9 +2164,58 @@ if st.session_state.results is not None:
 
 else:
     st.markdown("""
-    <div class="empty-state">
-        <h2>Configura e avvia il crawl</h2>
-        <p>Inserisci l'URL del sito nella sidebar, seleziona la profondita e il numero massimo di pagine, poi clicca <b>Avvia Crawl</b>.</p>
-        <p style="margin-top:1rem;opacity:.85">Oppure nella sidebar scegli <b>Rapporto condiviso (.json)</b> e carica il file esportato da un collega.</p>
-    </div>
+<div class="ux-empty-hero">
+  <div class="ux-empty-illustration">
+    <svg class="ux-illu-svg" viewBox="0 0 440 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect class="ux-browser" x="24" y="28" width="392" height="168" rx="14"/>
+      <rect class="ux-browser-bar" x="24" y="28" width="392" height="36" rx="14"/>
+      <rect fill="#ffffff" x="24" y="52" width="392" height="144" rx="0 0 14 14"/>
+      <circle class="ux-dot" cx="48" cy="46" r="4" fill="#FF6B35"/>
+      <circle class="ux-dot" cx="64" cy="46" r="4" fill="#9ca3af"/>
+      <circle class="ux-dot" cx="80" cy="46" r="4" fill="#d1d5db"/>
+      <!-- Linee struttura (IA) -->
+      <path class="ux-line" d="M220 118 L220 152"/>
+      <path class="ux-line" d="M220 118 L140 152"/>
+      <path class="ux-line" d="M220 118 L300 152"/>
+      <path class="ux-line-accent" d="M220 118 L220 152"/>
+      <path class="ux-line-accent" d="M220 118 L140 152"/>
+      <path class="ux-line-accent" d="M220 118 L300 152"/>
+      <!-- Nodo centrale (home / root) -->
+      <circle class="ux-node-core" cx="220" cy="98" r="22"/>
+      <text x="220" y="103" text-anchor="middle" fill="#fff" font-size="11" font-family="Inter, sans-serif" font-weight="700">IA</text>
+      <!-- Nodi satellite -->
+      <g class="ux-node-sat ux-sat-a" style="transform-box: fill-box; transform-origin: 140px 174px;">
+        <rect class="ux-node" x="118" y="158" width="44" height="32" rx="8"/>
+        <text x="140" y="177" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter, sans-serif">Nav</text>
+      </g>
+      <g class="ux-node-sat ux-sat-b" style="transform-box: fill-box; transform-origin: 220px 174px;">
+        <rect class="ux-node" x="198" y="158" width="44" height="32" rx="8"/>
+        <text x="220" y="177" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter, sans-serif">Map</text>
+      </g>
+      <g class="ux-node-sat ux-sat-c" style="transform-box: fill-box; transform-origin: 300px 174px;">
+        <rect class="ux-node" x="278" y="158" width="44" height="32" rx="8"/>
+        <text x="300" y="177" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter, sans-serif">Data</text>
+      </g>
+      <!-- Mini griglia decorativa (stile wireframe) -->
+      <line x1="320" y1="78" x2="380" y2="78" stroke="#e5e7eb" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="320" y1="92" x2="368" y2="92" stroke="#f3f4f6" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="320" y1="106" x2="376" y2="106" stroke="#e5e7eb" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <div class="ux-accent-bar"></div>
+  <h2>Disegna la struttura del tuo sito</h2>
+  <p class="ux-empty-lead">
+    Come in un <strong>blueprint</strong> di information architecture: mappa navigazione, contenuti e flussi —
+    con lo stesso spirito strutturale che distingue il <strong>UX architect</strong> dal solo design visivo.
+  </p>
+  <div class="ux-empty-steps">
+    <span class="ux-step"><span class="ux-step-num">1</span> Sidebar → URL o .json</span>
+    <span class="ux-step"><span class="ux-step-num">2</span> Crawl o importa</span>
+    <span class="ux-step"><span class="ux-step-num">3</span> Sitemap &amp; diagramma</span>
+  </div>
+  <p style="font-size:0.8rem;color:#9ca3af;margin-top:2rem;line-height:1.5">
+    Stile illustrazione ispirato al linguaggio visivo dei tool di design moderni
+    (es. <a href="https://www.visily.ai/blog/ux-architect-designer/" target="_blank" rel="noopener noreferrer" style="color:#FF6B35;font-weight:600;text-decoration:none;">Visily — UX Architect vs Designer</a>).
+  </p>
+</div>
     """, unsafe_allow_html=True)

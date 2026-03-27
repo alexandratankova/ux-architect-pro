@@ -1,5 +1,6 @@
 [theme]
-primaryColor = "#111827"
+# Arancione accento per CTA, slider e elementi primari
+primaryColor = "#FF6B35"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f9fafb"
 textColor = "#111827"
