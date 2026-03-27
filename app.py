@@ -17,7 +17,6 @@ import openpyxl
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from pathlib import Path
 
 # openpyxl rejects control chars in cells (common in scraped HTML)
 _EXCEL_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -275,43 +274,38 @@ st.markdown("""
         color: var(--ux-accent);
     }
 
-    /* Hero vuoto — illustrazione + testo nella stessa colonna centrata */
+    /* Hero vuoto — solo testo centrato (nessuna illustrazione) */
     .ux-empty-hero {
-        padding: 1rem 1rem 3.5rem;
+        padding: 2rem 1rem 3.5rem;
         margin: 0 auto;
     }
     .ux-empty-stack {
-        max-width: 460px;
+        max-width: 520px;
         margin: 0 auto;
         display: flex;
         flex-direction: column;
         align-items: center;
-    }
-    .ux-empty-illustration {
-        width: 100%;
-        margin: 0 0 1.5rem 0;
-        animation: uxHeroFloat 5s ease-in-out infinite;
-    }
-    @keyframes uxHeroFloat {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-10px); }
     }
     .ux-empty-title {
         color: #111827;
         font-weight: 800;
         font-size: 1.55rem;
         letter-spacing: -0.35px;
-        margin: 0;
+        margin: 0 0 1rem 0;
         line-height: 1.4;
         text-align: center;
         width: 100%;
-        max-width: 460px;
+        max-width: 520px;
     }
-    .ux-empty-illu-img {
+    .ux-empty-hint {
+        color: #4b5563;
+        font-size: 1.02rem;
+        line-height: 1.7;
+        margin: 0;
         width: 100%;
-        height: auto;
-        display: block;
-        border-radius: 10px;
+        max-width: 520px;
+        text-align: center;
+        box-sizing: border-box;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -2351,30 +2345,13 @@ if st.session_state.results is not None:
                 st.markdown(f"- `{u}`")
 
 else:
-    _hero_path = Path(__file__).resolve().parent / "assets" / "hero-illustration.png"
-    _hero_src = ""
-    if _hero_path.is_file():
-        _hero_src = "data:image/png;base64," + base64.standard_b64encode(
-            _hero_path.read_bytes()
-        ).decode("ascii")
-    _img_html = (
-        f'<div class="ux-empty-illustration"><img class="ux-empty-illu-img" '
-        f'src="{_hero_src}" alt="Illustrazione: mappare struttura e dati" /></div>'
-        if _hero_src
-        else (
-            '<div class="ux-empty-illustration"><p class="ux-empty-title" '
-            'style="font-size:0.95rem;font-weight:500">Immagine non trovata: '
-            "<code>assets/hero-illustration.png</code></p></div>"
-        )
-    )
-    st.markdown(
-        f"""
+    st.markdown("""
 <div class="ux-empty-hero">
   <div class="ux-empty-stack">
-  {_img_html}
   <h1 class="ux-empty-title">Ciao! 👋<br/>Mappiamo insieme.</h1>
+  <p class="ux-empty-hint">
+    Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega. 😊
+  </p>
   </div>
 </div>
-""",
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
