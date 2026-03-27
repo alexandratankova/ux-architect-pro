@@ -17,6 +17,7 @@ import openpyxl
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from pathlib import Path
 
 # openpyxl rejects control chars in cells (common in scraped HTML)
 _EXCEL_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -300,80 +301,17 @@ st.markdown("""
         font-weight: 800;
         font-size: 1.55rem;
         letter-spacing: -0.35px;
-        margin: 0 0 0.85rem 0;
-        line-height: 1.25;
-        text-align: center;
-        width: 100%;
-        max-width: 460px;
-    }
-    .ux-empty-hint {
-        color: #4b5563;
-        font-size: 1.02rem;
-        line-height: 1.7;
         margin: 0;
+        line-height: 1.4;
+        text-align: center;
         width: 100%;
         max-width: 460px;
-        text-align: center;
-        box-sizing: border-box;
     }
-
-    /* SVG hero — line art monocromatica (figura + dati + laptop) */
-    .ux-illu-svg {
+    .ux-empty-illu-img {
         width: 100%;
         height: auto;
         display: block;
-    }
-    .ux-illu-svg .ux-il-stroke {
-        fill: none;
-        stroke: #171717;
-        stroke-width: 1.65;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-    }
-    .ux-illu-svg .ux-il-fill {
-        fill: #ffffff;
-        stroke: #171717;
-        stroke-width: 1.65;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-    }
-    .ux-illu-svg .ux-il-dark {
-        fill: #171717;
-        stroke: #171717;
-        stroke-width: 1.4;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-    }
-    .ux-illu-svg .ux-il-muted {
-        fill: none;
-        stroke: #d1d5db;
-        stroke-width: 1.2;
-        stroke-linecap: round;
-    }
-    .ux-illu-svg .ux-il-drift {
-        animation: uxIlDrift 4.2s ease-in-out infinite;
-    }
-    .ux-illu-svg .ux-il-drift-delay {
-        animation: uxIlDrift 5s ease-in-out infinite;
-        animation-delay: 0.5s;
-    }
-    @keyframes uxIlDrift {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-5px); }
-    }
-    .ux-illu-svg .ux-il-steam path {
-        animation: uxIlSteam 2.4s ease-in-out infinite;
-    }
-    .ux-illu-svg .ux-il-steam path:nth-child(2) { animation-delay: 0.35s; }
-    .ux-illu-svg .ux-il-steam path:nth-child(3) { animation-delay: 0.7s; }
-    @keyframes uxIlSteam {
-        0%, 100% { opacity: 0.35; }
-        50% { opacity: 0.85; }
-    }
-    .ux-illu-svg g.ux-il-drift,
-    .ux-illu-svg g.ux-il-drift-delay {
-        transform-box: fill-box;
-        transform-origin: 50% 40%;
+        border-radius: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -2413,76 +2351,30 @@ if st.session_state.results is not None:
                 st.markdown(f"- `{u}`")
 
 else:
-    st.markdown("""
+    _hero_path = Path(__file__).resolve().parent / "assets" / "hero-illustration.png"
+    _hero_src = ""
+    if _hero_path.is_file():
+        _hero_src = "data:image/png;base64," + base64.standard_b64encode(
+            _hero_path.read_bytes()
+        ).decode("ascii")
+    _img_html = (
+        f'<div class="ux-empty-illustration"><img class="ux-empty-illu-img" '
+        f'src="{_hero_src}" alt="Illustrazione: mappare struttura e dati" /></div>'
+        if _hero_src
+        else (
+            '<div class="ux-empty-illustration"><p class="ux-empty-title" '
+            'style="font-size:0.95rem;font-weight:500">Immagine non trovata: '
+            "<code>assets/hero-illustration.png</code></p></div>"
+        )
+    )
+    st.markdown(
+        f"""
 <div class="ux-empty-hero">
   <div class="ux-empty-stack">
-  <div class="ux-empty-illustration">
-    <svg class="ux-illu-svg" viewBox="0 0 440 248" xmlns="http://www.w3.org/2000/svg" role="img">
-      <title>Illustrazione: persona che lavora con dati e laptop</title>
-      <!-- Dettagli atmosferici -->
-      <g class="ux-il-muted" aria-hidden="true">
-        <line x1="8" y1="200" x2="42" y2="168"/>
-        <line x1="400" y1="28" x2="428" y2="52"/>
-        <path d="M 22 52 L 28 58 M 25 55 L 31 49"/>
-        <path d="M 382 198 L 388 204 M 385 201 L 391 195"/>
-        <path d="M 48 120 Q 58 112 52 108"/>
-        <path d="M 360 140 Q 372 136 368 128"/>
-      </g>
-      <!-- Laptop (sfondo) -->
-      <g aria-hidden="true">
-        <rect class="ux-il-fill" x="62" y="44" width="316" height="132" rx="10"/>
-        <rect fill="#f9fafb" stroke="#171717" stroke-width="1.65" x="78" y="58" width="284" height="100" rx="4"/>
-        <!-- Mini grafico a barre sullo schermo -->
-        <rect class="ux-il-dark" x="98" y="118" width="10" height="28" rx="1"/>
-        <rect class="ux-il-dark" x="116" y="108" width="10" height="38" rx="1"/>
-        <rect class="ux-il-dark" x="134" y="98" width="10" height="48" rx="1"/>
-        <rect class="ux-il-dark" x="152" y="114" width="10" height="32" rx="1"/>
-        <path class="ux-il-stroke" d="M 92 148 h 248"/>
-        <path class="ux-il-fill" d="M 98 176 L 342 176 L 336 192 L 104 192 Z"/>
-        <path class="ux-il-stroke" d="M 88 196 h 264"/>
-      </g>
-      <!-- Grafico flottante sinistra (geometria / punti) -->
-      <g class="ux-il-drift" transform="translate(14, 34)">
-        <rect class="ux-il-fill" x="0" y="0" width="76" height="58" rx="5"/>
-        <path class="ux-il-stroke" d="M 22 44 L 40 16 L 58 40 Z"/>
-        <circle class="ux-il-dark" cx="22" cy="44" r="3"/>
-        <circle class="ux-il-dark" cx="40" cy="16" r="3"/>
-        <circle class="ux-il-dark" cx="58" cy="40" r="3"/>
-      </g>
-      <!-- Grafico flottante destra (curva) -->
-      <g class="ux-il-drift-delay" transform="translate(336, 28)">
-        <rect class="ux-il-fill" x="0" y="0" width="78" height="64" rx="5"/>
-        <path class="ux-il-stroke" d="M 10 50 V 14 M 10 50 h 58"/>
-        <path class="ux-il-stroke" d="M 14 46 C 22 28 32 40 40 22 S 54 18 66 12"/>
-      </g>
-      <!-- Figura -->
-      <g aria-hidden="true">
-        <path class="ux-il-dark" d="M 196 178 L 244 178 L 252 232 Q 220 238 188 232 Z"/>
-        <rect class="ux-il-fill" x="198" y="120" width="44" height="58" rx="10"/>
-        <path class="ux-il-stroke" d="M 212 118 v 10"/>
-        <circle class="ux-il-fill" cx="220" cy="104" r="17"/>
-        <path class="ux-il-stroke" d="M 204 128 L 118 76"/>
-        <path class="ux-il-stroke" d="M 236 128 L 334 70"/>
-        <path class="ux-il-dark" d="M 198 96 Q 206 72 220 74 Q 238 70 246 92 Q 248 102 242 108 Q 228 98 220 100 Q 208 102 198 96 Z"/>
-      </g>
-      <!-- Tazza + vapore -->
-      <g aria-hidden="true">
-        <path class="ux-il-fill" d="M 312 206 h 52 v 28 a 8 8 0 0 1 -8 8 h -36 a 8 8 0 0 1 -8 -8 v -28 z"/>
-        <path class="ux-il-dark" d="M 308 202 h 60 v 8 h -60 z"/>
-        <rect class="ux-il-dark" x="318" y="214" width="40" height="10" rx="2"/>
-        <path class="ux-il-stroke" d="M 322 218 c 4 0 4 4 8 4 s 4 -4 8 -4"/>
-        <g class="ux-il-steam ux-il-stroke" stroke-width="1.2">
-          <path d="M 332 198 Q 336 190 332 184"/>
-          <path d="M 344 200 Q 348 188 344 182"/>
-          <path d="M 356 198 Q 360 190 356 184"/>
-        </g>
-      </g>
-    </svg>
-  </div>
-  <h1 class="ux-empty-title">Ciao! 👋 Mappiamo insieme!</h1>
-  <p class="ux-empty-hint">
-    Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega. 😊
-  </p>
+  {_img_html}
+  <h1 class="ux-empty-title">Ciao! 👋<br/>Mappiamo insieme.</h1>
   </div>
 </div>
-    """, unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
