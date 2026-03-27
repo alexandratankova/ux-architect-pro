@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UX Architect Pro — Anteprima gerarchia (locale)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px 24px 48px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #fff;
+      color: #111827;
+      max-width: 920px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .lead { color: #64748b; font-size: 0.95rem; margin: 0 0 28px; line-height: 1.5; }
+    h2 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin: 32px 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+
+    /* Stessi stili del tab Sitemap in app.py */
+    .sitemap-block {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 0;
+      margin-bottom: 1rem;
+      overflow-x: auto;
+    }
+    .sitemap-heading {
+      font-weight: 700;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #475569;
+      padding: 10px 14px 6px;
+      border-bottom: 1px solid #e2e8f0;
+      background: linear-gradient(180deg, #f1f5f9 0%, #f8fafc 100%);
+    }
+    .sitemap-row {
+      display: block;
+      padding: 3px 14px;
+      border-left: 4px solid transparent;
+      margin: 0;
+      white-space: pre;
+      font-family: inherit;
+    }
+    .sitemap-line { display: inline; }
+    .sitemap-row.smap-d0 { border-left-color: #1e293b; font-weight: 600; color: #0f172a; }
+    .sitemap-row.smap-d1 { border-left-color: #475569; color: #1e293b; }
+    .sitemap-row.smap-d2 { border-left-color: #64748b; color: #334155; }
+    .sitemap-row.smap-d3 { border-left-color: #94a3b8; color: #475569; font-size: 0.92em; }
+    .sitemap-row.smap-d4 { border-left-color: #cbd5e1; color: #64748b; font-size: 0.9em; }
+
+    .diagram-wrap {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px 20px;
+      overflow: auto;
+      background: #f8fafc;
+    }
+    .mermaid { display: flex; justify-content: flex-start; }
+  </style>
+</head>
+<body>
+  <p class="badge">Solo anteprima locale — non in produzione</p>
+  <h1>Gerarchia visiva (come in app)</h1>
+  <p class="lead">
+    Sotto: stessi CSS del tab <strong>Sitemap</strong> e un diagramma Mermaid con
+    <strong>stroke-width</strong> e <strong>font-size</strong> per profondità (come genera <code>build_mermaid</code>).
+  </p>
+
+  <h2>Tab Sitemap — Information Architecture</h2>
+  <div class="sitemap-block">
+    <div class="sitemap-heading">Main Navigation (Header)</div>
+    <div class="sitemap-row smap-d0"><span class="sitemap-line">├── Home</span></div>
+    <div class="sitemap-row smap-d1"><span class="sitemap-line">│   ├── Prodotti</span></div>
+    <div class="sitemap-row smap-d2"><span class="sitemap-line">│   │   ├── Catalogo</span></div>
+    <div class="sitemap-row smap-d3"><span class="sitemap-line">│   │   └── Novità</span></div>
+    <div class="sitemap-row smap-d1"><span class="sitemap-line">│   └── Servizi</span></div>
+    <div class="sitemap-row smap-d2"><span class="sitemap-line">│       └── Consulenza</span></div>
+    <div class="sitemap-row smap-d0"><span class="sitemap-line">└── Contatti</span></div>
+  </div>
+
+  <div class="sitemap-block">
+    <div class="sitemap-heading">Secondary Navigation (Footer)</div>
+    <div class="sitemap-row smap-d0"><span class="sitemap-line">├── Privacy</span></div>
+    <div class="sitemap-row smap-d0"><span class="sitemap-line">└── Cookie</span></div>
+  </div>
+
+  <h2>Tab Diagramma — Mermaid (LR + profondità)</h2>
+  <div class="diagram-wrap">
+    <pre class="mermaid">
+graph LR
+  ROOT["Home / sito"]
+  SEC["Main Navigation (Header)"]
+  L2["Prodotti"]
+  L3["Catalogo"]
+  L4["Novità 2025"]
+  ROOT --> SEC
+  SEC --> L2
+  L2 --> L3
+  L3 --> L4
+  classDef demo fill:#B8D4EC,stroke:#64748b,stroke-width:1.2px,color:#111827
+  class ROOT,L2,L3,L4 demo
+  style SEC fill:#EDE9FE,stroke:#78716C,stroke-width:3.23px,color:#111827,font-weight:bold,font-size:15px
+  style ROOT stroke-width:3.45px,font-size:16px
+  style L2 stroke-width:3.01px,font-size:14px
+  style L3 stroke-width:2.79px,font-size:13px
+  style L4 stroke-width:2.57px,font-size:12px
+    </pre>
+  </div>
+
+  <p class="lead" style="margin-top:24px;font-size:0.85rem;">
+    Apri questo file da un server locale (es. <code>python3 -m http.server 8765</code> nella cartella del progetto)
+    e vai su <code>http://127.0.0.1:8765/preview-hierarchy.html</code>
+  </p>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'neutral',
+      themeVariables: {
+        primaryColor: '#f1f5f9',
+        primaryTextColor: '#111827',
+        primaryBorderColor: '#94a3b8',
+        lineColor: '#64748b',
+        secondaryColor: '#e2e8f0',
+        tertiaryColor: '#f8fafc',
+      },
+      flowchart: {
+        useMaxWidth: false,
+        htmlLabels: true,
+        curve: 'basis',
+        padding: 16,
+        nodeSpacing: 42,
+        rankSpacing: 48,
+      },
+      securityLevel: 'loose',
+    });
+  </script>
+</body>
+</html>

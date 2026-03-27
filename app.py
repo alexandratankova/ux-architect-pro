@@ -9,6 +9,7 @@ import time
 import io
 import re
 import json
+import html
 import xml.etree.ElementTree as ET
 import zlib
 import base64
@@ -70,6 +71,39 @@ def _contrast_label_hex(hex_color: str) -> str:
         return "#111827"
     lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     return "#111827" if lum > 0.62 else "#ffffff"
+
+
+def _sitemap_row_depth_class(depth: int) -> str:
+    d = min(max(depth, 0), 8)
+    return f"smap-d{d}"
+
+
+def _sitemap_block_html(heading: str, rows: list[tuple[int, str]]) -> str:
+    """Heading + righe (profondità, testo albero ASCII) con enfasi visiva per livello."""
+    h = html.escape(heading)
+    parts = [f'<div class="sitemap-block"><div class="sitemap-heading">{h}</div>']
+    for depth, line in rows:
+        cls = _sitemap_row_depth_class(depth)
+        parts.append(
+            f'<div class="sitemap-row {cls}"><span class="sitemap-line">'
+            f"{html.escape(line)}</span></div>"
+        )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def _mermaid_depth_cap(depth: int) -> int:
+    return min(max(depth, 0), 10)
+
+
+def _mermaid_depth_stroke_px(depth: int) -> float:
+    d = _mermaid_depth_cap(depth)
+    return round(max(1.0, 3.45 - d * 0.22), 2)
+
+
+def _mermaid_depth_font_px(depth: int) -> int:
+    d = _mermaid_depth_cap(depth)
+    return max(11, 16 - d)
 
 
 # ─────────────────────────────────────────────
@@ -140,6 +174,46 @@ st.markdown("""
         font-weight: 600;
         letter-spacing: 0.2px;
     }
+
+    .sitemap-block {
+        font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.8rem;
+        line-height: 1.6;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 0;
+        margin-bottom: 1rem;
+        overflow-x: auto;
+    }
+    .sitemap-heading {
+        font-weight: 700;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #475569;
+        padding: 10px 14px 6px;
+        border-bottom: 1px solid #e2e8f0;
+        background: linear-gradient(180deg, #f1f5f9 0%, #f8fafc 100%);
+    }
+    .sitemap-row {
+        display: block;
+        padding: 3px 14px;
+        border-left: 4px solid transparent;
+        margin: 0;
+        white-space: pre;
+        font-family: inherit;
+    }
+    .sitemap-line { display: inline; }
+    .sitemap-row.smap-d0 { border-left-color: #1e293b; font-weight: 600; color: #0f172a; }
+    .sitemap-row.smap-d1 { border-left-color: #475569; color: #1e293b; }
+    .sitemap-row.smap-d2 { border-left-color: #64748b; color: #334155; }
+    .sitemap-row.smap-d3 { border-left-color: #94a3b8; color: #475569; font-size: 0.92em; }
+    .sitemap-row.smap-d4 { border-left-color: #cbd5e1; color: #64748b; font-size: 0.9em; }
+    .sitemap-row.smap-d5 { border-left-color: #e2e8f0; color: #64748b; font-size: 0.88em; }
+    .sitemap-row.smap-d6 { border-left-color: #e2e8f0; color: #64748b; font-size: 0.87em; }
+    .sitemap-row.smap-d7,
+    .sitemap-row.smap-d8 { border-left-color: #e2e8f0; color: #64748b; font-size: 0.85em; }
 
     .section-title {
         font-size: 1.15rem;
@@ -1350,8 +1424,10 @@ def build_mermaid(results: list[dict], base_url: str,
         rendered_urls.add(home_page["url"])
     node_count = 0
     max_nodes = 100
+    section_ids: set[str] = set()
+    node_depth: dict[str, int] = {root_id: 0}
 
-    def _add_menu_node(item: dict, parent_id: str):
+    def _add_menu_node(item: dict, parent_id: str, depth: int):
         nonlocal node_count
         if node_count >= max_nodes:
             return
@@ -1368,36 +1444,43 @@ def build_mermaid(results: list[dict], base_url: str,
             cat = CAT_FALLBACK
 
         nid = make_id(item.get("label", "item"))
+        node_depth[nid] = depth
         lines.append(f'    {nid}["{label}"]')
         lines.append(f"    {parent_id} --> {nid}")
         node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
 
         for child in item.get("children", []):
-            _add_menu_node(child, nid)
+            _add_menu_node(child, nid, depth + 1)
 
     if navigations:
         for nav_name, nav_items in navigations.items():
             section_id = make_id(nav_name)
+            section_ids.add(section_id)
+            node_depth[section_id] = 1
             safe_name = nav_name.replace('"', "'")
             lines.append(f'    {section_id}["{safe_name}"]')
             lines.append(f"    {root_id} --> {section_id}")
+            sd = node_depth[section_id]
             style_defs.append(
                 f"    style {section_id} fill:#EDE9FE,stroke:#78716C,"
-                f"stroke-width:2px,color:#111827,font-weight:bold"
+                f"stroke-width:{_mermaid_depth_stroke_px(sd)}px,color:#111827,"
+                f"font-weight:bold,font-size:{_mermaid_depth_font_px(sd)}px"
             )
             for item in nav_items:
-                _add_menu_node(item, section_id)
+                _add_menu_node(item, section_id, 2)
 
         remaining = [p for p in results if p["url"] not in rendered_urls
                      and p.get("status_code", 200) != 404]
         if remaining and node_count < max_nodes:
             other_id = make_id("altre_pagine")
+            node_depth[other_id] = 1
             lines.append(f'    {other_id}["Altre pagine ({len(remaining)})"]')
             lines.append(f"    {root_id} --> {other_id}")
             node_classes.append(f"    class {other_id} {cat_class.get(CAT_FALLBACK, 'cat0')}")
             for page in remaining[:max_nodes - node_count]:
                 node_count += 1
                 nid = make_id(page["url"])
+                node_depth[nid] = 2
                 plabel = (page.get("title") or page["url"])[:45].replace('"', "'")
                 cat = page.get("category", CAT_FALLBACK)
                 lines.append(f'    {nid}["{plabel}"]')
@@ -1406,7 +1489,7 @@ def build_mermaid(results: list[dict], base_url: str,
     else:
         tree, path_to_page = _build_page_tree(results)
 
-        def walk(tree_node: dict, parent_id: str, current_path: str = ""):
+        def walk(tree_node: dict, parent_id: str, current_path: str = "", depth: int = 1):
             nonlocal node_count
             for key in sorted(tree_node.keys()):
                 if node_count >= max_nodes:
@@ -1414,6 +1497,7 @@ def build_mermaid(results: list[dict], base_url: str,
                 full_path = f"{current_path}/{key}".strip("/") if current_path else key
                 nid = make_id(full_path)
                 node_count += 1
+                node_depth[nid] = depth
                 page = path_to_page.get(full_path)
                 if page:
                     label = (page.get("title") or key)[:45].replace('"', "'")
@@ -1424,12 +1508,18 @@ def build_mermaid(results: list[dict], base_url: str,
                 lines.append(f'    {nid}["{label}"]')
                 lines.append(f"    {parent_id} --> {nid}")
                 node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
-                walk(tree_node[key], nid, full_path)
+                walk(tree_node[key], nid, full_path, depth + 1)
 
-        walk(tree, root_id)
+        walk(tree, root_id, "", 1)
 
     lines.extend(node_classes)
     lines.extend(style_defs)
+    for nid, d in node_depth.items():
+        if nid in section_ids:
+            continue
+        sw = _mermaid_depth_stroke_px(d)
+        fs = _mermaid_depth_font_px(d)
+        lines.append(f"    style {nid} stroke-width:{sw}px,font-size:{fs}px")
     return "\n".join(lines)
 
 
@@ -1589,7 +1679,14 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
                 secondaryColor: '#e2e8f0',
                 tertiaryColor: '#f8fafc',
             }},
-            flowchart: {{ useMaxWidth: false, htmlLabels: true, curve: 'basis' }},
+            flowchart: {{
+                useMaxWidth: false,
+                htmlLabels: true,
+                curve: 'basis',
+                padding: 16,
+                nodeSpacing: 42,
+                rankSpacing: 48,
+            }},
             securityLevel: 'loose'
         }});
         {download_btn_js}
@@ -2188,8 +2285,8 @@ if st.session_state.results is not None:
         navigations = st.session_state.navigations
         url_to_page = {p["url"]: p for p in results}
 
-        def render_menu_tree(items: list[dict], prefix: str = ""):
-            lines_out: list[str] = []
+        def render_menu_tree(items: list[dict], prefix: str = "", depth: int = 0):
+            lines_out: list[tuple[int, str]] = []
             for i, item in enumerate(items):
                 last = i == len(items) - 1
                 connector = "└── " if last else "├── "
@@ -2197,16 +2294,19 @@ if st.session_state.results is not None:
                 label = item["label"]
                 if page and page.get("title"):
                     label = page["title"]
-                lines_out.append(f"{prefix}{connector}{label}")
+                lines_out.append((depth, f"{prefix}{connector}{label}"))
                 extension = "    " if last else "│   "
                 if item.get("children"):
-                    lines_out.extend(render_menu_tree(item["children"], prefix + extension))
+                    lines_out.extend(
+                        render_menu_tree(item["children"], prefix + extension, depth + 1)
+                    )
             return lines_out
 
         if navigations:
             st.markdown(
                 '<div class="section-subtitle">'
-                'Struttura delle navigazioni estratte dal sito'
+                "Struttura delle navigazioni estratte dal sito. "
+                "Ogni livello ha un bordo colorato a sinistra e un peso del testo diverso."
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -2217,9 +2317,7 @@ if st.session_state.results is not None:
             root_title = (home_page.get("title") if home_page else None) or urlparse(results[0]["url"]).netloc
 
             for nav_name, nav_items in navigations.items():
-                tree_text = f"{nav_name}\n"
-                tree_text += "\n".join(render_menu_tree(nav_items))
-                st.code(tree_text, language=None)
+                st.markdown(_sitemap_block_html(nav_name, render_menu_tree(nav_items)), unsafe_allow_html=True)
 
             all_nav_urls = set(flatten_nav_urls(navigations))
             home_url = normalize_url(
@@ -2230,19 +2328,22 @@ if st.session_state.results is not None:
                          and p.get("status_code", 200) != 404
                          and p["url"] != home_url]
             if remaining:
-                tree_text = f"Altre pagine ({len(remaining)})\n"
-                tree_lines: list[str] = []
-                for j, page in enumerate(remaining[:30]):
-                    last = j == min(len(remaining), 30) - 1
+                cap = remaining[:30]
+                other_rows: list[tuple[int, str]] = []
+                for j, page in enumerate(cap):
+                    last = j == len(cap) - 1
                     conn = "└── " if last else "├── "
-                    tree_lines.append(f"{conn}{page.get('title') or page['url']}")
-                tree_text += "\n".join(tree_lines)
-                st.code(tree_text, language=None)
+                    other_rows.append((0, f"{conn}{page.get('title') or page['url']}"))
+                st.markdown(
+                    _sitemap_block_html(f"Altre pagine ({len(remaining)})", other_rows),
+                    unsafe_allow_html=True,
+                )
 
         else:
             st.markdown(
                 '<div class="section-subtitle">'
-                'Struttura gerarchica basata sui percorsi URL'
+                "Struttura gerarchica basata sui percorsi URL. "
+                "La profondità del percorso è evidenziata sulle righe (bordo e intensità del testo)."
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -2269,14 +2370,14 @@ if st.session_state.results is not None:
 
             def render_tree(node: dict, prefix: str = "", is_last: bool = True,
                             depth: int = 0, current_path: str = ""):
-                lines_out: list[str] = []
+                lines_out: list[tuple[int, str]] = []
                 items = sorted(node.keys())
                 for i, key in enumerate(items):
                     last = i == len(items) - 1
                     connector = "└── " if last else "├── "
                     full_path = f"{current_path}/{key}".strip("/") if current_path else key
                     label = path_to_title.get(full_path, key)
-                    lines_out.append(f"{prefix}{connector}{label}")
+                    lines_out.append((depth, f"{prefix}{connector}{label}"))
                     extension = "    " if last else "│   "
                     lines_out.extend(render_tree(
                         node[key], prefix + extension, last, depth + 1, full_path
@@ -2285,14 +2386,17 @@ if st.session_state.results is not None:
 
             root_label = urlparse(results[0]["url"]).netloc
             root_title = path_to_title.get("(home)", root_label)
-            tree_text = f"{root_title}\n"
-            tree_text += "\n".join(render_tree(tree))
-            st.code(tree_text, language=None)
+            st.markdown(
+                _sitemap_block_html(root_title, render_tree(tree)),
+                unsafe_allow_html=True,
+            )
 
     with tab_mermaid:
         st.markdown('<div class="section-title">Diagramma gerarchico</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="section-subtitle">Struttura del sito con layout orizzontale. '
+            "Nodi più vicini alla <strong>home</strong> hanno bordo più marcato e testo più grande; "
+            "scendendo nella gerarchia i riquadri diventano più leggeri. "
             "Usa <strong>+ / − / Reset</strong> in alto al centro per lo zoom, oppure "
             "<strong>Ctrl + rotellina</strong> sul diagramma. Scroll nel riquadro per spostarti. "
             "Il pulsante in alto a destra scarica il JPEG.</div>",
