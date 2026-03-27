@@ -10,9 +10,17 @@ import time
 import io
 import re
 import json
+import zlib
+import base64
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+# openpyxl rejects control chars in cells (common in scraped HTML)
+_EXCEL_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+SHARE_PACK_VERSION = 1
+# Browser / proxy limits on query string length — above this, use JSON file only
+SHARE_URL_MAX_CHARS = 3200
 
 # ─────────────────────────────────────────────
 # Page config
@@ -1176,8 +1184,73 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
 
 
 # ─────────────────────────────────────────────
-# Excel export
+# Excel export & share packs
 # ─────────────────────────────────────────────
+
+def _excel_safe_str(val, max_len: int = 32700) -> str:
+    """Strip characters illegal in Excel/OpenXML cells."""
+    if val is None:
+        return ""
+    s = str(val)
+    s = _EXCEL_CTRL_RE.sub(" ", s)
+    return s if len(s) <= max_len else s[:max_len]
+
+
+def build_share_pack(start_url: str, results: list[dict],
+                     navigations: dict[str, list[dict]], errors_404: list[str]) -> dict:
+    """Serializable snapshot for URL or file sharing (_html omitted)."""
+    clean_results = []
+    for p in results:
+        d = {k: v for k, v in p.items() if k != "_html"}
+        clean_results.append(d)
+    return {
+        "v": SHARE_PACK_VERSION,
+        "start_url": start_url,
+        "results": clean_results,
+        "navigations": navigations,
+        "errors_404": list(errors_404),
+    }
+
+
+def share_pack_to_json_bytes(pack: dict) -> bytes:
+    return json.dumps(pack, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def encode_share_query_payload(pack: dict) -> str:
+    raw = json.dumps(pack, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    z = zlib.compress(raw, level=9)
+    return base64.urlsafe_b64encode(z).decode("ascii").rstrip("=")
+
+
+def decode_share_query_payload(token: str) -> dict:
+    s = token.strip()
+    pad = (-len(s)) % 4
+    if pad:
+        s += "=" * pad
+    z = base64.urlsafe_b64decode(s.encode("ascii"))
+    raw = zlib.decompress(z)
+    data = json.loads(raw.decode("utf-8"))
+    if data.get("v") != SHARE_PACK_VERSION:
+        raise ValueError("Unsupported share pack version")
+    return data
+
+
+def apply_share_pack(data: dict) -> None:
+    """Restore session from a share pack dict."""
+    start_url = data["start_url"]
+    results = data["results"]
+    navigations = data.get("navigations") or {}
+    errors_404 = data.get("errors_404") or []
+    for page in results:
+        page.setdefault("_html", "")
+        if "category" not in page:
+            page["category"] = categorize_page(page, start_url)
+    st.session_state.results = results
+    st.session_state.errors_404 = errors_404
+    st.session_state.navigations = navigations
+    st.session_state.crawl_start_url = start_url
+    st.session_state.mermaid_code = build_mermaid(results, start_url, navigations)
+
 
 def generate_excel(results: list[dict]) -> bytes:
     """Build a multi-sheet Excel workbook."""
@@ -1200,8 +1273,8 @@ def generate_excel(results: list[dict]) -> bytes:
         cell.alignment = Alignment(horizontal="center")
 
     for row_idx, page in enumerate(results, 2):
-        ws1.cell(row=row_idx, column=1, value=page["url"])
-        sc = page["status_code"]
+        ws1.cell(row=row_idx, column=1, value=_excel_safe_str(page.get("url", "")))
+        sc = int(page.get("status_code") or 0)
         status_cell = ws1.cell(row=row_idx, column=2, value=sc)
         if sc == 404:
             status_cell.font = Font(color="CC0000", bold=True)
@@ -1209,14 +1282,17 @@ def generate_excel(results: list[dict]) -> bytes:
             status_cell.font = Font(color="FF6600", bold=True)
         else:
             status_cell.font = Font(color="228B22")
-        ws1.cell(row=row_idx, column=3, value=page.get("category", "Other"))
-        ws1.cell(row=row_idx, column=4, value=page.get("title", ""))
-        ws1.cell(row=row_idx, column=5, value=page.get("meta_description", ""))
-        ws1.cell(row=row_idx, column=6, value=page.get("h1", ""))
-        ws1.cell(row=row_idx, column=7, value="; ".join(page.get("h2_list", [])))
-        ws1.cell(row=row_idx, column=8, value=page.get("word_count", 0))
-        ws1.cell(row=row_idx, column=9, value=page.get("breadcrumbs", ""))
-        ws1.cell(row=row_idx, column=10, value=page.get("depth", 0))
+        ws1.cell(row=row_idx, column=3, value=_excel_safe_str(page.get("category", "Other")))
+        ws1.cell(row=row_idx, column=4, value=_excel_safe_str(page.get("title", "")))
+        ws1.cell(row=row_idx, column=5, value=_excel_safe_str(page.get("meta_description", "")))
+        ws1.cell(row=row_idx, column=6, value=_excel_safe_str(page.get("h1", "")))
+        h2s = page.get("h2_list") or []
+        if not isinstance(h2s, list):
+            h2s = [str(h2s)]
+        ws1.cell(row=row_idx, column=7, value=_excel_safe_str("; ".join(str(x) for x in h2s)))
+        ws1.cell(row=row_idx, column=8, value=int(page.get("word_count") or 0))
+        ws1.cell(row=row_idx, column=9, value=_excel_safe_str(page.get("breadcrumbs", "")))
+        ws1.cell(row=row_idx, column=10, value=int(page.get("depth") or 0))
         for c in range(1, len(headers) + 1):
             ws1.cell(row=row_idx, column=c).border = thin_border
 
@@ -1243,7 +1319,7 @@ def generate_excel(results: list[dict]) -> bytes:
 
     total = len(results) or 1
     for row_idx, (cat, pages) in enumerate(sorted(cat_groups.items()), 2):
-        ws2.cell(row=row_idx, column=1, value=cat)
+        ws2.cell(row=row_idx, column=1, value=_excel_safe_str(cat, max_len=200))
         n = len(pages)
         ws2.cell(row=row_idx, column=2, value=n)
         ws2.cell(row=row_idx, column=3, value=f"{n / total * 100:.1f}%")
@@ -1294,6 +1370,31 @@ with st.sidebar:
     st.markdown("---")
     run_crawl = st.button("Avvia Crawl", type="primary", use_container_width=True)
 
+    st.markdown("---")
+    st.markdown("### Apri rapporto condiviso")
+    _up_share = st.file_uploader(
+        "File .json da un collega",
+        type=["json"],
+        help="Generato dalla scheda Esporta — Condividi",
+    )
+    if _up_share is not None and st.button(
+        "Importa rapporto", key="btn_import_share_json", use_container_width=True,
+    ):
+        try:
+            _raw = _up_share.read()
+            _data = json.loads(_raw.decode("utf-8"))
+            if _data.get("v") != SHARE_PACK_VERSION:
+                st.error("Versione del file non supportata.")
+            else:
+                apply_share_pack(_data)
+                st.session_state._loaded_share_token = None
+                if "r" in st.query_params:
+                    del st.query_params["r"]
+                st.success("Rapporto caricato.")
+                st.rerun()
+        except Exception as _exc:
+            st.error(f"Impossibile leggere il file: {_exc}")
+
 
 # ═════════════════════════════════════════════
 # MAIN AREA
@@ -1304,6 +1405,23 @@ if "results" not in st.session_state:
     st.session_state.errors_404 = []
     st.session_state.navigations = {}
     st.session_state.mermaid_code = ""
+    st.session_state.crawl_start_url = ""
+    st.session_state._loaded_share_token = None
+
+# Apri rapporto da link (?r=... compresso)
+_r_raw = st.query_params.get("r")
+_r_q = _r_raw[0] if isinstance(_r_raw, list) and _r_raw else _r_raw
+if _r_q and _r_q != st.session_state.get("_loaded_share_token"):
+    try:
+        _pack = decode_share_query_payload(_r_q)
+        apply_share_pack(_pack)
+        st.session_state._loaded_share_token = _r_q
+    except Exception:
+        st.session_state._loaded_share_token = _r_q
+        st.error(
+            "Il parametro **r** nell'URL non e valido (link troncato o versione non compatibile). "
+            "Chiedi al collega il file **.json** oppure un nuovo link."
+        )
 
 if run_crawl:
     if not start_url:
@@ -1328,7 +1446,11 @@ if run_crawl:
         st.session_state.results = results
         st.session_state.errors_404 = errors_404
         st.session_state.navigations = navigations
+        st.session_state.crawl_start_url = start_url
         st.session_state.mermaid_code = build_mermaid(results, start_url, navigations)
+        st.session_state._loaded_share_token = None
+        if "r" in st.query_params:
+            del st.query_params["r"]
         st.rerun()
 
 
@@ -1574,19 +1696,64 @@ if st.session_state.results is not None:
         st.markdown('<div class="section-title">Esportazione dati</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Scarica i risultati nei formati disponibili</div>', unsafe_allow_html=True)
 
+        _start_share = (st.session_state.get("crawl_start_url") or "").strip()
+        if not _start_share and results:
+            _p0 = urlparse(results[0]["url"])
+            _start_share = f"{_p0.scheme}://{_p0.netloc}/"
+        _share_pack = build_share_pack(
+            _start_share, results, st.session_state.navigations, errors_404,
+        )
+        _share_json = share_pack_to_json_bytes(_share_pack)
+        try:
+            _share_enc = encode_share_query_payload(_share_pack)
+        except Exception:
+            _share_enc = ""
+
+        st.markdown("##### Condividi il rapporto")
+        st.caption(
+            "Altri possono vedere lo stesso risultato aprendo un link oppure importando il file .json dalla sidebar."
+        )
+        st.download_button(
+            "Scarica rapporto condivisibile (.json)",
+            data=_share_json,
+            file_name="ux_architect_pro_rapporto.json",
+            mime="application/json",
+            use_container_width=True,
+            key="dl_share_json",
+        )
+        if _share_enc and len(_share_enc) <= SHARE_URL_MAX_CHARS:
+            if st.button("Aggiorna URL con link di condivisione", use_container_width=True, key="btn_set_share_url"):
+                st.query_params["r"] = _share_enc
+            st.caption(
+                "Dopo il clic, copia l'indirizzo completo dalla barra del browser e invialo: aprendolo si carica questo rapporto."
+            )
+        elif _share_enc:
+            st.info(
+                f"Questo rapporto e troppo grande per un link nell'URL (~{len(_share_enc)} caratteri). "
+                "Usa il file **.json** sopra."
+            )
+
+        st.markdown("---")
+
         col_xl, col_mmd = st.columns(2)
 
         with col_xl:
             st.markdown("**Excel multi-foglio**")
             st.caption("Foglio 1: lista completa  |  Foglio 2: statistiche per categoria")
-            excel_bytes = generate_excel(results)
-            st.download_button(
-                "Scarica Excel",
-                data=excel_bytes,
-                file_name="ux_architect_pro_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
+            try:
+                _excel_bytes = generate_excel(results)
+            except Exception as _xlsx_exc:
+                _excel_bytes = b""
+                st.error(f"Errore durante la creazione del file Excel: {_xlsx_exc}")
+            if _excel_bytes:
+                st.download_button(
+                    "Scarica Excel",
+                    data=_excel_bytes,
+                    file_name="ux_architect_pro_report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="dl_excel",
+                )
 
         with col_mmd:
             st.markdown("**Mermaid.js diagram**")
@@ -1597,6 +1764,7 @@ if st.session_state.results is not None:
                 file_name="sitemap_mermaid.md",
                 mime="text/markdown",
                 use_container_width=True,
+                key="dl_mermaid",
             )
 
         if errors_404:
@@ -1610,5 +1778,6 @@ else:
     <div class="empty-state">
         <h2>Configura e avvia il crawl</h2>
         <p>Inserisci l'URL del sito nella sidebar, seleziona la profondita e il numero massimo di pagine, poi clicca <b>Avvia Crawl</b>.</p>
+        <p style="margin-top:1rem;opacity:.85">Oppure <b>importa un rapporto .json</b> condiviso da un collega (sezione in basso nella sidebar).</p>
     </div>
     """, unsafe_allow_html=True)
