@@ -74,26 +74,17 @@ st.markdown("""
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
 
-    .block-container { max-width: 1200px; padding-top: 2rem; }
+    .block-container { max-width: 1200px; padding-top: 1.25rem; }
 
-    .main-header {
-        background: #fff;
-        padding: 2.5rem 0 1.8rem;
-        margin-bottom: 1rem;
-        border-bottom: 1px solid #eaedf0;
-    }
-    .main-header h1 {
-        margin: 0;
-        font-size: 2rem;
+    .sidebar-app-title {
+        font-size: 0.72rem;
         font-weight: 800;
-        letter-spacing: -0.6px;
+        letter-spacing: 0.14em;
         color: #111827;
-    }
-    .main-header p {
-        margin: 0.5rem 0 0;
-        color: #6b7280;
-        font-size: 1rem;
-        font-weight: 400;
+        margin: 0 0 1.1rem 0;
+        line-height: 1.35;
+        padding-bottom: 0.85rem;
+        border-bottom: 1px solid #eaedf0;
     }
 
     .stat-card {
@@ -304,9 +295,20 @@ st.markdown("""
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-10px); }
     }
+    .ux-empty-title {
+        color: #111827;
+        font-weight: 800;
+        font-size: 1.55rem;
+        letter-spacing: -0.35px;
+        margin: 0 0 0.85rem 0;
+        line-height: 1.25;
+        text-align: center;
+        width: 100%;
+        max-width: 460px;
+    }
     .ux-empty-hint {
         color: #4b5563;
-        font-size: 1.05rem;
+        font-size: 1.02rem;
         line-height: 1.7;
         margin: 0;
         width: 100%;
@@ -315,83 +317,66 @@ st.markdown("""
         box-sizing: border-box;
     }
 
-    /* SVG interno */
+    /* SVG hero — line art monocromatica (figura + dati + laptop) */
     .ux-illu-svg {
         width: 100%;
         height: auto;
         display: block;
     }
-    .ux-illu-svg .ux-line {
+    .ux-illu-svg .ux-il-stroke {
+        fill: none;
+        stroke: #171717;
+        stroke-width: 1.65;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+    .ux-illu-svg .ux-il-fill {
+        fill: #ffffff;
+        stroke: #171717;
+        stroke-width: 1.65;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+    .ux-illu-svg .ux-il-dark {
+        fill: #171717;
+        stroke: #171717;
+        stroke-width: 1.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+    .ux-illu-svg .ux-il-muted {
         fill: none;
         stroke: #d1d5db;
-        stroke-width: 2;
+        stroke-width: 1.2;
         stroke-linecap: round;
-        opacity: 0.9;
     }
-    .ux-illu-svg .ux-line-accent {
-        stroke: var(--ux-accent);
-        stroke-dasharray: 8 6;
-        animation: uxDashMove 2.5s linear infinite;
-        opacity: 0.65;
+    .ux-illu-svg .ux-il-drift {
+        animation: uxIlDrift 4.2s ease-in-out infinite;
     }
-    @keyframes uxDashMove {
-        to { stroke-dashoffset: -28; }
+    .ux-illu-svg .ux-il-drift-delay {
+        animation: uxIlDrift 5s ease-in-out infinite;
+        animation-delay: 0.5s;
     }
-    .ux-illu-svg .ux-node {
-        fill: #ffffff;
-        stroke: #e5e7eb;
-        stroke-width: 2;
-    }
-    .ux-illu-svg .ux-node-core {
-        fill: var(--ux-accent);
-        stroke: #fff;
-        stroke-width: 2;
-        animation: uxNodePulse 2.8s ease-in-out infinite;
-    }
-    @keyframes uxNodePulse {
-        0%, 100% { filter: drop-shadow(0 0 0 transparent); }
-        50% { filter: drop-shadow(0 4px 12px rgba(255, 107, 53, 0.35)); }
-    }
-    .ux-illu-svg .ux-node-sat {
-        animation: uxSatBob 3.2s ease-in-out infinite;
-    }
-    .ux-illu-svg .ux-sat-b { animation-delay: 0.45s; }
-    .ux-illu-svg .ux-sat-c { animation-delay: 0.9s; }
-    @keyframes uxSatBob {
+    @keyframes uxIlDrift {
         0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-4px); }
+        50% { transform: translateY(-5px); }
     }
-    .ux-illu-svg .ux-browser {
-        fill: #ffffff;
-        stroke: #eaedf0;
-        stroke-width: 1.5;
+    .ux-illu-svg .ux-il-steam path {
+        animation: uxIlSteam 2.4s ease-in-out infinite;
     }
-    .ux-illu-svg .ux-browser-bar {
-        fill: #f3f4f6;
-    }
-    .ux-illu-svg .ux-dot {
-        animation: uxDotBlink 2.2s ease-in-out infinite;
-    }
-    .ux-illu-svg .ux-dot:nth-of-type(2) { animation-delay: 0.3s; }
-    .ux-illu-svg .ux-dot:nth-of-type(3) { animation-delay: 0.6s; }
-    @keyframes uxDotBlink {
+    .ux-illu-svg .ux-il-steam path:nth-child(2) { animation-delay: 0.35s; }
+    .ux-illu-svg .ux-il-steam path:nth-child(3) { animation-delay: 0.7s; }
+    @keyframes uxIlSteam {
         0%, 100% { opacity: 0.35; }
-        50% { opacity: 1; }
+        50% { opacity: 0.85; }
+    }
+    .ux-illu-svg g.ux-il-drift,
+    .ux-illu-svg g.ux-il-drift-delay {
+        transform-box: fill-box;
+        transform-origin: 50% 40%;
     }
 </style>
 """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# Header
-# ─────────────────────────────────────────────
-st.markdown("""
-<div class="main-header">
-    <h1>UX Architect Pro</h1>
-    <p>Crawl, analizza e categorizza la struttura di qualsiasi sito web —
-    <span style="color:#FF6B35;font-weight:600;">information architecture</span> in un colpo solo.</p>
-</div>
-""", unsafe_allow_html=True)
-
 
 # ═════════════════════════════════════════════
 # CORE FUNCTIONS
@@ -1943,6 +1928,10 @@ def generate_excel(
 # SIDEBAR
 # ═════════════════════════════════════════════
 with st.sidebar:
+    st.markdown(
+        '<p class="sidebar-app-title">UX ARCHITECT PRO</p>',
+        unsafe_allow_html=True,
+    )
     st.markdown("### Fonte dati")
     st.markdown(
         '<p class="sidebar-source-hint">Inserisci un URL per un nuovo crawl oppure '
@@ -2428,44 +2417,71 @@ else:
 <div class="ux-empty-hero">
   <div class="ux-empty-stack">
   <div class="ux-empty-illustration">
-    <svg class="ux-illu-svg" viewBox="0 0 440 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect class="ux-browser" x="24" y="28" width="392" height="168" rx="14"/>
-      <rect class="ux-browser-bar" x="24" y="28" width="392" height="36" rx="14"/>
-      <rect fill="#ffffff" x="24" y="52" width="392" height="144" rx="0 0 14 14"/>
-      <circle class="ux-dot" cx="48" cy="46" r="4" fill="#FF6B35"/>
-      <circle class="ux-dot" cx="64" cy="46" r="4" fill="#9ca3af"/>
-      <circle class="ux-dot" cx="80" cy="46" r="4" fill="#d1d5db"/>
-      <!-- Linee struttura (IA) -->
-      <path class="ux-line" d="M220 118 L220 152"/>
-      <path class="ux-line" d="M220 118 L140 152"/>
-      <path class="ux-line" d="M220 118 L300 152"/>
-      <path class="ux-line-accent" d="M220 118 L220 152"/>
-      <path class="ux-line-accent" d="M220 118 L140 152"/>
-      <path class="ux-line-accent" d="M220 118 L300 152"/>
-      <!-- Nodo centrale (home / root) -->
-      <circle class="ux-node-core" cx="220" cy="98" r="22"/>
-      <text x="220" y="103" text-anchor="middle" fill="#fff" font-size="11" font-family="Inter, sans-serif" font-weight="700">IA</text>
-      <!-- Nodi satellite -->
-      <g class="ux-node-sat ux-sat-a" style="transform-box: fill-box; transform-origin: 140px 174px;">
-        <rect class="ux-node" x="118" y="158" width="44" height="32" rx="8"/>
-        <text x="140" y="177" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter, sans-serif">Nav</text>
+    <svg class="ux-illu-svg" viewBox="0 0 440 248" xmlns="http://www.w3.org/2000/svg" role="img">
+      <title>Illustrazione: persona che lavora con dati e laptop</title>
+      <!-- Dettagli atmosferici -->
+      <g class="ux-il-muted" aria-hidden="true">
+        <line x1="8" y1="200" x2="42" y2="168"/>
+        <line x1="400" y1="28" x2="428" y2="52"/>
+        <path d="M 22 52 L 28 58 M 25 55 L 31 49"/>
+        <path d="M 382 198 L 388 204 M 385 201 L 391 195"/>
+        <path d="M 48 120 Q 58 112 52 108"/>
+        <path d="M 360 140 Q 372 136 368 128"/>
       </g>
-      <g class="ux-node-sat ux-sat-b" style="transform-box: fill-box; transform-origin: 220px 174px;">
-        <rect class="ux-node" x="198" y="158" width="44" height="32" rx="8"/>
-        <text x="220" y="177" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter, sans-serif">Map</text>
+      <!-- Laptop (sfondo) -->
+      <g aria-hidden="true">
+        <rect class="ux-il-fill" x="62" y="44" width="316" height="132" rx="10"/>
+        <rect fill="#f9fafb" stroke="#171717" stroke-width="1.65" x="78" y="58" width="284" height="100" rx="4"/>
+        <!-- Mini grafico a barre sullo schermo -->
+        <rect class="ux-il-dark" x="98" y="118" width="10" height="28" rx="1"/>
+        <rect class="ux-il-dark" x="116" y="108" width="10" height="38" rx="1"/>
+        <rect class="ux-il-dark" x="134" y="98" width="10" height="48" rx="1"/>
+        <rect class="ux-il-dark" x="152" y="114" width="10" height="32" rx="1"/>
+        <path class="ux-il-stroke" d="M 92 148 h 248"/>
+        <path class="ux-il-fill" d="M 98 176 L 342 176 L 336 192 L 104 192 Z"/>
+        <path class="ux-il-stroke" d="M 88 196 h 264"/>
       </g>
-      <g class="ux-node-sat ux-sat-c" style="transform-box: fill-box; transform-origin: 300px 174px;">
-        <rect class="ux-node" x="278" y="158" width="44" height="32" rx="8"/>
-        <text x="300" y="177" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter, sans-serif">Data</text>
+      <!-- Grafico flottante sinistra (geometria / punti) -->
+      <g class="ux-il-drift" transform="translate(14, 34)">
+        <rect class="ux-il-fill" x="0" y="0" width="76" height="58" rx="5"/>
+        <path class="ux-il-stroke" d="M 22 44 L 40 16 L 58 40 Z"/>
+        <circle class="ux-il-dark" cx="22" cy="44" r="3"/>
+        <circle class="ux-il-dark" cx="40" cy="16" r="3"/>
+        <circle class="ux-il-dark" cx="58" cy="40" r="3"/>
       </g>
-      <!-- Mini griglia decorativa (stile wireframe) -->
-      <line x1="320" y1="78" x2="380" y2="78" stroke="#e5e7eb" stroke-width="1.5" stroke-linecap="round"/>
-      <line x1="320" y1="92" x2="368" y2="92" stroke="#f3f4f6" stroke-width="1.5" stroke-linecap="round"/>
-      <line x1="320" y1="106" x2="376" y2="106" stroke="#e5e7eb" stroke-width="1.5" stroke-linecap="round"/>
+      <!-- Grafico flottante destra (curva) -->
+      <g class="ux-il-drift-delay" transform="translate(336, 28)">
+        <rect class="ux-il-fill" x="0" y="0" width="78" height="64" rx="5"/>
+        <path class="ux-il-stroke" d="M 10 50 V 14 M 10 50 h 58"/>
+        <path class="ux-il-stroke" d="M 14 46 C 22 28 32 40 40 22 S 54 18 66 12"/>
+      </g>
+      <!-- Figura -->
+      <g aria-hidden="true">
+        <path class="ux-il-dark" d="M 196 178 L 244 178 L 252 232 Q 220 238 188 232 Z"/>
+        <rect class="ux-il-fill" x="198" y="120" width="44" height="58" rx="10"/>
+        <path class="ux-il-stroke" d="M 212 118 v 10"/>
+        <circle class="ux-il-fill" cx="220" cy="104" r="17"/>
+        <path class="ux-il-stroke" d="M 204 128 L 118 76"/>
+        <path class="ux-il-stroke" d="M 236 128 L 334 70"/>
+        <path class="ux-il-dark" d="M 198 96 Q 206 72 220 74 Q 238 70 246 92 Q 248 102 242 108 Q 228 98 220 100 Q 208 102 198 96 Z"/>
+      </g>
+      <!-- Tazza + vapore -->
+      <g aria-hidden="true">
+        <path class="ux-il-fill" d="M 312 206 h 52 v 28 a 8 8 0 0 1 -8 8 h -36 a 8 8 0 0 1 -8 -8 v -28 z"/>
+        <path class="ux-il-dark" d="M 308 202 h 60 v 8 h -60 z"/>
+        <rect class="ux-il-dark" x="318" y="214" width="40" height="10" rx="2"/>
+        <path class="ux-il-stroke" d="M 322 218 c 4 0 4 4 8 4 s 4 -4 8 -4"/>
+        <g class="ux-il-steam ux-il-stroke" stroke-width="1.2">
+          <path d="M 332 198 Q 336 190 332 184"/>
+          <path d="M 344 200 Q 348 188 344 182"/>
+          <path d="M 356 198 Q 360 190 356 184"/>
+        </g>
+      </g>
     </svg>
   </div>
+  <h1 class="ux-empty-title">Ciao! 👋 Mappiamo insieme!</h1>
   <p class="ux-empty-hint">
-    Ciao! 👋 Mappiamo insieme! Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega. 😊
+    Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega. 😊
   </p>
   </div>
 </div>
