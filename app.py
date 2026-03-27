@@ -253,16 +253,106 @@ def is_same_domain(url: str, base_domain: str) -> bool:
     return parsed.netloc == base_domain or parsed.netloc == ""
 
 
-def extract_links(soup: BeautifulSoup, current_url: str, base_domain: str):
-    """Yield absolute, same-domain links found on the page."""
-    for tag in soup.find_all("a", href=True):
-        href = tag["href"].strip()
-        if href.startswith(("#", "mailto:", "tel:", "javascript:")):
+def _collect_links(tags, current_url: str, base_domain: str) -> list[str]:
+    """Resolve a list of <a> tags to absolute same-domain URLs."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        href = (tag.get("href") or "").strip()
+        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
             continue
-        absolute = urljoin(current_url, href)
-        absolute = normalize_url(absolute)
-        if is_same_domain(absolute, base_domain):
-            yield absolute
+        absolute = normalize_url(urljoin(current_url, href))
+        if absolute not in seen and is_same_domain(absolute, base_domain):
+            seen.add(absolute)
+            out.append(absolute)
+    return out
+
+
+def extract_nav_links(soup: BeautifulSoup, current_url: str, base_domain: str) -> list[str]:
+    """Extract links from main navigation elements (header, nav, menus)."""
+    nav_tags = []
+
+    for nav in soup.find_all("nav"):
+        nav_tags.extend(nav.find_all("a", href=True))
+
+    header = soup.find("header")
+    if header:
+        nav_tags.extend(header.find_all("a", href=True))
+
+    for el in soup.find_all(class_=re.compile(
+        r"(main-menu|primary-menu|nav-menu|site-nav|navbar|menu-item|"
+        r"main-navigation|primary-navigation|mega-menu)", re.I
+    )):
+        nav_tags.extend(el.find_all("a", href=True))
+
+    for el in soup.find_all(id=re.compile(
+        r"(menu|nav|navigation|main-menu|primary-menu)", re.I
+    )):
+        nav_tags.extend(el.find_all("a", href=True))
+
+    return _collect_links(nav_tags, current_url, base_domain)
+
+
+def extract_all_links(soup: BeautifulSoup, current_url: str, base_domain: str) -> list[str]:
+    """Extract all same-domain links from the page."""
+    return _collect_links(soup.find_all("a", href=True), current_url, base_domain)
+
+
+def fetch_sitemap_urls(base_url: str, session: requests.Session, base_domain: str) -> list[str]:
+    """Try to fetch URLs from sitemap.xml or robots.txt sitemap reference."""
+    urls: list[str] = []
+    sitemap_locations = [
+        f"{base_url.rstrip('/')}/sitemap.xml",
+        f"{base_url.rstrip('/')}/sitemap_index.xml",
+    ]
+
+    try:
+        robots_resp = session.get(f"{base_url.rstrip('/')}/robots.txt", timeout=8)
+        if robots_resp.status_code == 200:
+            for line in robots_resp.text.splitlines():
+                if line.strip().lower().startswith("sitemap:"):
+                    sm_url = line.split(":", 1)[1].strip()
+                    if sm_url and sm_url not in sitemap_locations:
+                        sitemap_locations.insert(0, sm_url)
+    except Exception:
+        pass
+
+    for sm_url in sitemap_locations:
+        try:
+            resp = session.get(sm_url, timeout=8)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "lxml-xml")
+
+            for sitemap_tag in soup.find_all("sitemap"):
+                loc = sitemap_tag.find("loc")
+                if loc and loc.text.strip():
+                    try:
+                        sub_resp = session.get(loc.text.strip(), timeout=8)
+                        if sub_resp.status_code == 200:
+                            sub_soup = BeautifulSoup(sub_resp.text, "lxml-xml")
+                            for url_tag in sub_soup.find_all("url"):
+                                loc2 = url_tag.find("loc")
+                                if loc2 and loc2.text.strip():
+                                    u = normalize_url(loc2.text.strip())
+                                    if is_same_domain(u, base_domain):
+                                        urls.append(u)
+                    except Exception:
+                        pass
+
+            for url_tag in soup.find_all("url"):
+                loc = url_tag.find("loc")
+                if loc and loc.text.strip():
+                    u = normalize_url(loc.text.strip())
+                    if is_same_domain(u, base_domain):
+                        urls.append(u)
+
+            if urls:
+                break
+        except Exception:
+            continue
+
+    return list(dict.fromkeys(urls))
 
 
 def extract_page_data(url: str, response: requests.Response, soup: BeautifulSoup) -> dict:
@@ -410,16 +500,18 @@ def categorize_page(page_data: dict, base_url: str) -> str:
 
 def crawl_site(start_url: str, max_depth: int, max_pages: int,
                progress_bar, log_container, status_text):
-    """BFS crawler. Yields page data dicts and updates UI in real time."""
+    """Priority crawler: nav menu first, then sitemap, then secondary links."""
     parsed_start = urlparse(start_url)
     base_domain = parsed_start.netloc
     start_url = normalize_url(start_url)
 
     visited: set[str] = set()
-    queue: list[tuple[str, int]] = [(start_url, 0)]
+    priority_queue: list[tuple[str, int]] = []
+    secondary_queue: list[tuple[str, int]] = []
     results: list[dict] = []
     errors_404: list[str] = []
     log_lines: list[str] = []
+    nav_urls: set[str] = set()
 
     session = requests.Session()
     session.headers.update({
@@ -434,63 +526,131 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
         log_lines.append(f'<div class="log-entry {css.get(level, "")}">{icons.get(level, "")} {msg}</div>')
         log_container.markdown("".join(log_lines[-60:]), unsafe_allow_html=True)
 
-    add_log(f"Avvio crawl di <b>{start_url}</b>  |  Depth max: {max_depth}  |  Pages max: {max_pages}")
+    def update_ui():
+        pct = min(len(results) / max_pages, 1.0)
+        progress_bar.progress(pct, text=f"Scansionate {len(results)}/{max_pages} pagine")
+        q_total = len(priority_queue) + len(secondary_queue)
+        status_text.caption(
+            f"Pagine visitate: {len(visited)} | In coda: {q_total} | "
+            f"Errori 404: {len(errors_404)}"
+        )
 
-    while queue and len(results) < max_pages:
-        url, depth = queue.pop(0)
-        if url in visited:
-            continue
+    def process_page(url: str, depth: int) -> BeautifulSoup | None:
+        """Fetch and record a single page. Returns soup if HTML, else None."""
+        if url in visited or len(results) >= max_pages:
+            return None
         visited.add(url)
 
         try:
-            add_log(f"[depth {depth}] Scaricamento: {url}")
+            add_log(f"[depth {depth}] {url}")
             resp = session.get(url, timeout=15, allow_redirects=True)
 
             if resp.status_code == 404:
                 errors_404.append(url)
-                add_log(f"<b>404 Not Found</b>: {url}", "err")
+                add_log(f"<b>404</b>: {url}", "err")
                 results.append({
                     "url": url, "status_code": 404, "title": "", "meta_description": "",
                     "og_type": "", "h1": "", "h2_list": [], "word_count": 0,
                     "breadcrumbs": "", "_html": "", "depth": depth,
                 })
-                pct = min(len(results) / max_pages, 1.0)
-                progress_bar.progress(pct, text=f"Scansionate {len(results)}/{max_pages} pagine")
-                status_text.caption(f"Pagine visitate: {len(visited)} | In coda: {len(queue)} | Errori 404: {len(errors_404)}")
-                continue
+                update_ui()
+                return None
 
             if resp.status_code >= 400:
-                add_log(f"Errore HTTP {resp.status_code}: {url}", "warn")
-                continue
+                add_log(f"HTTP {resp.status_code}: {url}", "warn")
+                return None
 
             content_type = resp.headers.get("Content-Type", "")
             if "text/html" not in content_type:
-                continue
+                return None
 
             soup = BeautifulSoup(resp.text, "lxml")
             page_data = extract_page_data(url, resp, soup)
             page_data["_html"] = resp.text[:50_000]
             page_data["depth"] = depth
+            page_data["is_nav"] = url in nav_urls
             results.append(page_data)
 
-            add_log(f"OK ({resp.status_code}) — <b>{page_data['title'][:70] or '(no title)'}</b>", "ok")
+            title_preview = page_data["title"][:60] or "(no title)"
+            source = "nav" if url in nav_urls else ""
+            if source:
+                add_log(f"OK — <b>{title_preview}</b> [menu]", "ok")
+            else:
+                add_log(f"OK — <b>{title_preview}</b>", "ok")
 
-            if depth < max_depth:
-                for link in extract_links(soup, url, base_domain):
-                    if link not in visited:
-                        queue.append((link, depth + 1))
+            update_ui()
+            time.sleep(0.12)
+            return soup
 
         except requests.RequestException as exc:
             add_log(f"Errore di rete: {url} — {exc}", "err")
         except Exception as exc:
-            add_log(f"Errore imprevisto: {url} — {exc}", "err")
+            add_log(f"Errore: {url} — {exc}", "err")
+        return None
 
-        pct = min(len(results) / max_pages, 1.0)
-        progress_bar.progress(pct, text=f"Scansionate {len(results)}/{max_pages} pagine")
-        status_text.caption(f"Pagine visitate: {len(visited)} | In coda: {len(queue)} | Errori 404: {len(errors_404)}")
-        time.sleep(0.15)
+    # ── Phase 1: Homepage + extract main navigation ──
+    add_log(f"Avvio crawl di <b>{start_url}</b>")
+    add_log("Fase 1 — Analisi homepage e menu di navigazione", "info")
 
-    add_log(f"Crawl completato! {len(results)} pagine analizzate.", "ok")
+    home_soup = process_page(start_url, 0)
+
+    if home_soup:
+        homepage_nav = extract_nav_links(home_soup, start_url, base_domain)
+        nav_urls.update(homepage_nav)
+
+        if homepage_nav:
+            add_log(f"Trovate <b>{len(homepage_nav)}</b> voci nel menu principale", "ok")
+            for nav_link in homepage_nav:
+                if nav_link not in visited:
+                    priority_queue.append((nav_link, 1))
+        else:
+            add_log("Nessun menu di navigazione trovato, uso tutti i link", "warn")
+            for link in extract_all_links(home_soup, start_url, base_domain):
+                if link not in visited:
+                    priority_queue.append((link, 1))
+
+    # ── Phase 2: Sitemap.xml ──
+    add_log("Fase 2 — Ricerca sitemap.xml", "info")
+    sitemap_urls = fetch_sitemap_urls(start_url, session, base_domain)
+    if sitemap_urls:
+        add_log(f"Sitemap trovata: <b>{len(sitemap_urls)}</b> URL", "ok")
+        for sm_url in sitemap_urls:
+            if sm_url not in visited and sm_url not in nav_urls:
+                secondary_queue.append((sm_url, 1))
+    else:
+        add_log("Nessuna sitemap trovata", "warn")
+
+    # ── Phase 3: Crawl priority queue (nav links) first ──
+    add_log("Fase 3 — Scansione voci di navigazione", "info")
+
+    while priority_queue and len(results) < max_pages:
+        url, depth = priority_queue.pop(0)
+        soup = process_page(url, depth)
+        if soup and depth < max_depth:
+            sub_nav = extract_nav_links(soup, url, base_domain)
+            page_links = extract_all_links(soup, url, base_domain)
+            for link in sub_nav:
+                if link not in visited:
+                    priority_queue.append((link, depth + 1))
+            for link in page_links:
+                if link not in visited and link not in nav_urls:
+                    secondary_queue.append((link, depth + 1))
+
+    # ── Phase 4: Crawl secondary queue (sitemap + other links) ──
+    if len(results) < max_pages and secondary_queue:
+        add_log("Fase 4 — Scansione pagine secondarie e sitemap", "info")
+
+    while secondary_queue and len(results) < max_pages:
+        url, depth = secondary_queue.pop(0)
+        if depth > max_depth:
+            continue
+        soup = process_page(url, depth)
+        if soup and depth < max_depth:
+            for link in extract_all_links(soup, url, base_domain):
+                if link not in visited:
+                    secondary_queue.append((link, depth + 1))
+
+    add_log(f"Crawl completato — <b>{len(results)}</b> pagine analizzate", "ok")
     progress_bar.progress(1.0, text="Crawl completato!")
     return results, errors_404
 
