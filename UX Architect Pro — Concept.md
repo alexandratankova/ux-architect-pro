@@ -107,13 +107,12 @@ Le categorie riconosciute sono:
 
 ## Visualizzazioni
 
-Dopo il crawl, i risultati sono organizzati in **schede nell'ordine seguente** (allineato al flusso di lavoro IA → vista grafica → dettaglio → numeri → export):
+Dopo il crawl, i risultati sono organizzati in **schede nell'ordine seguente** (allineato al flusso di lavoro IA → vista grafica → dettaglio → export):
 
 1. **Sitemap** — albero testuale dell'Information Architecture  
 2. **Diagramma** — mappa Mermaid interattiva  
 3. **Tabella** — elenco pagine con filtri  
-4. **Statistiche** — distribuzione e metriche per categoria  
-5. **Esporta** — download Excel, Mermaid, condivisione rapporto
+4. **Esporta** — download Excel, Mermaid, condivisione rapporto
 
 ### Sitemap / Information Architecture (prima scheda)
 
@@ -131,10 +130,6 @@ Se il sito non espone navigazioni riconoscibili, il diagramma usa come fallback 
 
 Lista di tutte le pagine analizzate con filtro per categoria. Ogni riga si espande per mostrare il dettaglio completo: URL, titoli, meta description, lista H2, word count, breadcrumbs.
 
-### Statistiche
-
-Distribuzione delle pagine per categoria con percentuali, word count medio, e indicatori di qualita (pagine senza H1, senza meta description, errori 404 per categoria).
-
 ---
 
 ## Esportazione
@@ -146,7 +141,6 @@ Il file **ux_architect_pro_information_architecture.xlsx** non e una lista casua
 - **Foglio "Information Architecture"**: una riga per ogni voce di menu nell'ordine gerarchico, con **zona di navigazione** (es. Main Navigation (Header)), **livello**, **percorso IA** (es. `Voce > Sottovoce`), **voce menu**, **URL**, **title** e campi SEO (categoria, status, meta, H1, H2, word count, breadcrumbs, profondita di crawl). In coda, sezione **Altre pagine (non in menu)** per le pagine scansionate ma non presenti in nessun menu. Se il sito non ha navigazioni riconoscibili, il foglio usa la **struttura URL** come fallback (`Struttura URL (fallback)`), in linea con la Sitemap testuale.
 - **Foglio "Sitemap"** (Excel funzionale, allineato al tab Sitemap): colonne **Navigazione / zona**, poi **Livello 1 … Livello N** (fino a **12** livelli, in base alla profondita massima trovata), **Anteprima albero (ASCII)** come nel tab, e **URL (clic per aprire)** con **hyperlink** nativi (testo abbreviato se l'URL e molto lungo, stile link blu sottolineato). Sulla tabella sono attivi **filtri automatici** sulla riga intestazioni e **righe/colonne congelate** con ancoraggio su **B2** (resta fissa la colonna della zona e la riga delle intestazioni). Sotto i dati, una riga di suggerimento ricorda filtri, freeze e link cliccabili.
 - **Foglio "Diagramma"**: immagine PNG del flowchart Mermaid (quando il rendering e disponibile), equivalente al tab Diagramma.
-- **Foglio "Statistiche"**: aggregazioni per categoria (come in precedenza).
 
 I testi delle celle sono sanitizzati per compatibilita con Excel (nessun carattere di controllo illegale tipico degli HTML scrapati).
 

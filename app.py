@@ -5,7 +5,6 @@ import streamlit.components.v1 as components
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, unquote
-from collections import defaultdict, Counter
 import time
 import io
 import re
@@ -72,14 +71,6 @@ def _contrast_label_hex(hex_color: str) -> str:
     lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     return "#111827" if lum > 0.62 else "#ffffff"
 
-
-def _excel_font_on_fill(hex_no_hash: str) -> str:
-    """Testo nero o bianco per leggibilità su sfondo colore (foglio Statistiche)."""
-    h = (hex_no_hash or "").lstrip("#")
-    if len(h) != 6:
-        return "FFFFFF"
-    fg = _contrast_label_hex("#" + h)
-    return "FFFFFF" if fg == "#ffffff" else "000000"
 
 # ─────────────────────────────────────────────
 # Styling
@@ -200,28 +191,6 @@ st.markdown("""
         border: 1px solid #eaedf0 !important;
         border-radius: 10px !important;
         margin-bottom: 6px;
-    }
-
-    .cat-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 6px 0;
-    }
-    .cat-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        flex-shrink: 0;
-    }
-    .cat-label {
-        font-weight: 600;
-        color: #111827;
-        font-size: 0.9rem;
-    }
-    .cat-meta {
-        color: #6b7280;
-        font-size: 0.85rem;
     }
 
     .empty-state {
@@ -1819,7 +1788,7 @@ def generate_excel(
     navigations: dict[str, list[dict]] | None = None,
     mermaid_code: str = "",
 ) -> bytes:
-    """Workbook: IA, Sitemap testuale come in app, immagine diagramma, statistiche."""
+    """Workbook: IA, Sitemap come in app, immagine diagramma Mermaid."""
     wb = openpyxl.Workbook()
     url_to_page = {p["url"]: p for p in results}
 
@@ -2003,44 +1972,6 @@ def generate_excel(
         )
         ws_diag["A3"].alignment = Alignment(wrap_text=True, vertical="top")
     ws_diag.column_dimensions["A"].width = 22
-
-    # ── Sheet: Statistiche ──
-    ws2 = wb.create_sheet("Statistiche")
-    stat_headers = ["Categoria", "N° Pagine", "% del Totale", "Word Count Medio",
-                    "Pagine con Meta Desc", "Pagine senza H1", "Errori 404"]
-    for col_idx, h in enumerate(stat_headers, 1):
-        cell = ws2.cell(row=1, column=col_idx, value=h)
-        cell.fill = PatternFill(start_color="0f3460", end_color="0f3460", fill_type="solid")
-        cell.font = Font(color="FFFFFF", bold=True, size=11)
-        cell.alignment = Alignment(horizontal="center")
-
-    cat_groups: dict[str, list[dict]] = defaultdict(list)
-    for p in results:
-        cat_groups[p.get("category", CAT_FALLBACK)].append(p)
-
-    stat_palette = category_palette_map(list(cat_groups.keys()))
-    total = len(results) or 1
-    for row_idx, (cat, pages) in enumerate(sorted(cat_groups.items()), 2):
-        ws2.cell(row=row_idx, column=1, value=_excel_safe_str(cat, max_len=200))
-        n = len(pages)
-        ws2.cell(row=row_idx, column=2, value=n)
-        ws2.cell(row=row_idx, column=3, value=f"{n / total * 100:.1f}%")
-        avg_wc = sum(p.get("word_count", 0) for p in pages) / max(n, 1)
-        ws2.cell(row=row_idx, column=4, value=round(avg_wc))
-        ws2.cell(row=row_idx, column=5, value=sum(1 for p in pages if p.get("meta_description")))
-        ws2.cell(row=row_idx, column=6, value=sum(1 for p in pages if not p.get("h1")))
-        ws2.cell(row=row_idx, column=7, value=sum(1 for p in pages if p.get("status_code") == 404))
-
-        cat_hex = stat_palette.get(cat, CATEGORY_COLOR_FALLBACK).lstrip("#")
-        ws2.cell(row=row_idx, column=1).fill = PatternFill(
-            start_color=cat_hex, end_color=cat_hex, fill_type="solid",
-        )
-        ws2.cell(row=row_idx, column=1).font = Font(
-            color=_excel_font_on_fill(cat_hex), bold=True,
-        )
-
-    for col_idx in range(1, len(stat_headers) + 1):
-        ws2.column_dimensions[get_column_letter(col_idx)].width = 22
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -2247,8 +2178,8 @@ if st.session_state.results is not None:
     st.markdown("---")
 
     # ── Tabs (Sitemap e Diagramma per primi) ──
-    tab_sitemap, tab_mermaid, tab_table, tab_stats, tab_export = st.tabs(
-        ["Sitemap", "Diagramma", "Tabella", "Statistiche", "Esporta"]
+    tab_sitemap, tab_mermaid, tab_table, tab_export = st.tabs(
+        ["Sitemap", "Diagramma", "Tabella", "Esporta"]
     )
 
     with tab_sitemap:
@@ -2421,43 +2352,6 @@ if st.session_state.results is not None:
                     if page.get("breadcrumbs"):
                         st.markdown(f"**Breadcrumbs:** {page['breadcrumbs']}")
 
-    with tab_stats:
-        st.markdown('<div class="section-title">Distribuzione per categoria</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Panoramica della composizione del sito</div>', unsafe_allow_html=True)
-
-        cat_counts = Counter(p.get("category", CAT_FALLBACK) for p in results)
-        for cat, count in sorted(cat_counts.items(), key=lambda x: -x[1]):
-            pct = count / max(total_pages, 1) * 100
-            color = _cat_colors_ui.get(cat, CATEGORY_COLOR_FALLBACK)
-            st.markdown(
-                f'<div class="cat-row">'
-                f'<span class="cat-dot" style="background:{color}"></span>'
-                f'<span class="cat-label">{cat}</span>'
-                f'<span class="cat-meta">{count} pagine ({pct:.1f}%)</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            st.progress(pct / 100)
-
-        st.markdown("---")
-        st.markdown('<div class="section-title">Dettagli per categoria</div>', unsafe_allow_html=True)
-        for cat in sorted(cat_counts.keys()):
-            pages_in_cat = [p for p in results if p.get("category") == cat]
-            n = len(pages_in_cat)
-            avg_w = sum(p.get("word_count", 0) for p in pages_in_cat) // max(n, 1)
-            no_h1 = sum(1 for p in pages_in_cat if not p.get("h1"))
-            no_meta = sum(1 for p in pages_in_cat if not p.get("meta_description"))
-            e404 = sum(1 for p in pages_in_cat if p.get("status_code") == 404)
-
-            with st.expander(f"{cat} — {n} pagine"):
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Pagine", n)
-                m2.metric("Word Count medio", avg_w)
-                m3.metric("Senza H1", no_h1)
-                m4.metric("Senza Meta Desc", no_meta)
-                if e404:
-                    st.error(f"{e404} pagine con errore 404 in questa categoria")
-
     with tab_export:
         st.markdown('<div class="section-title">Esportazione dati</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Scarica i risultati nei formati disponibili</div>', unsafe_allow_html=True)
@@ -2508,7 +2402,7 @@ if st.session_state.results is not None:
             st.markdown("**Excel — Information Architecture**")
             st.caption(
                 "Fogli: **Information Architecture**, **Sitemap** (livelli gerarchici, anteprima ASCII, "
-                "URL cliccabili, filtri), **Diagramma** (PNG), **Statistiche**."
+                "URL cliccabili, filtri), **Diagramma** (PNG)."
             )
             try:
                 _excel_bytes = generate_excel(
