@@ -310,19 +310,27 @@ def extract_menu_hierarchy(soup: BeautifulSoup, current_url: str, base_domain: s
         return u if is_same_domain(u, base_domain) else ""
 
     def _is_column_wrapper(li_el) -> bool:
-        """Detect mega-menu column containers that aren't real menu items."""
+        """Detect mega-menu column containers that aren't real menu items.
+
+        Only returns True for purely structural wrappers: <li> elements
+        whose CSS class explicitly marks them as columns AND that carry
+        no visible label text of their own.
+        """
         classes = " ".join(li_el.get("class", [])).lower()
-        if any(k in classes for k in ("col", "column", "mega-col", "menu-col",
-                                       "sub-menu-column", "mega-menu-column")):
-            return True
-        a = li_el.find("a", recursive=False)
-        if not a:
-            return bool(li_el.find("ul"))
-        href = (a.get("href") or "").strip()
-        label = a.get_text(strip=True)
-        if href in ("", "#", "javascript:void(0)", "javascript:;") and not label:
-            return True
-        return False
+        is_col_class = any(k in classes for k in (
+            "column", "mega-col", "menu-col",
+            "sub-menu-column", "mega-menu-column",
+        ))
+        if not is_col_class:
+            return False
+        for child in li_el.children:
+            if hasattr(child, "name") and child.name in ("a", "span", "strong", "b"):
+                if child.get_text(strip=True):
+                    return False
+        direct_text = li_el.find(string=True, recursive=False)
+        if direct_text and direct_text.strip():
+            return False
+        return True
 
     def _parse_ul(ul_el) -> list[dict]:
         items: list[dict] = []
@@ -333,10 +341,15 @@ def extract_menu_hierarchy(soup: BeautifulSoup, current_url: str, base_domain: s
                     items.extend(_parse_ul(sub_ul))
                 continue
             a = li.find("a", recursive=False) or li.find("a")
-            if not a:
-                continue
-            label = a.get_text(strip=True)
-            url = _resolve(a.get("href", ""))
+            label = ""
+            url = ""
+            if a:
+                label = a.get_text(strip=True)
+                url = _resolve(a.get("href", ""))
+            if not label:
+                span = li.find(["span", "strong", "b"], recursive=False)
+                if span:
+                    label = span.get_text(strip=True)
             if not label:
                 continue
             children: list[dict] = []
