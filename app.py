@@ -439,9 +439,20 @@ def export_site_slug(start_url: str, max_len: int = 48) -> str:
     return slug[:max_len]
 
 
+def crawl_host_key(netloc: str) -> str:
+    """Host normalizzato per 'stesso sito': minuscolo e senza prefisso www."""
+    h = (netloc or "").lower().strip()
+    if h.startswith("www."):
+        h = h[4:]
+    return h
+
+
 def is_same_domain(url: str, base_domain: str) -> bool:
+    """True se l'URL è sullo stesso sito del crawl (www e non-www equivalgono)."""
     parsed = urlparse(url)
-    return parsed.netloc == base_domain or parsed.netloc == ""
+    if not parsed.netloc:
+        return True
+    return crawl_host_key(parsed.netloc) == crawl_host_key(base_domain)
 
 
 def _collect_links(tags, current_url: str, base_domain: str) -> list[str]:
@@ -1329,14 +1340,27 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
     sitemap_urls = fetch_sitemap_urls(start_url, session, base_domain)
     if sitemap_urls:
         add_log(f"Sitemap trovata: <b>{len(sitemap_urls)}</b> URL", "ok")
-        for sm_url in sitemap_urls:
-            if sm_url not in visited and sm_url not in nav_urls:
-                secondary_queue.append((sm_url, 1))
+        sm_pending = [u for u in sitemap_urls if u not in visited and u not in nav_urls]
+        # Parte della sitemap in testa alla coda prioritaria: così non resta solo in coda secondaria
+        # (dove non si arriva mai se il budget si esaurisce sul menu). Il resto resta in secondaria.
+        sm_cap = min(len(sm_pending), max(40, min(200, (max_pages * 2) // 5)))
+        early_sm = sm_pending[:sm_cap]
+        late_sm = sm_pending[sm_cap:]
+        for u in reversed(early_sm):
+            priority_queue.appendleft((u, 1))
+        for u in late_sm:
+            secondary_queue.append((u, 1))
+        if sm_pending:
+            add_log(
+                f"Sitemap: <b>{len(early_sm)}</b> URL in coda prioritaria, "
+                f"<b>{len(late_sm)}</b> in coda secondaria",
+                "info",
+            )
     else:
         add_log("Nessuna sitemap trovata", "warn")
 
-    # ── Phase 3: Crawl priority queue (nav links) — concurrent ──
-    add_log("Fase 3 — Scansione voci di navigazione", "info")
+    # ── Phase 3: Crawl priority queue (nav + sitemap) — concurrent ──
+    add_log("Fase 3 — Scansione voci di navigazione e URL da sitemap", "info")
     _drain_queue(priority_queue, add_to_secondary=True)
 
     # ── Phase 4: Crawl secondary queue — concurrent ──

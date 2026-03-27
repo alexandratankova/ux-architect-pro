@@ -54,11 +54,15 @@ Il crawler non segue i link alla cieca. Opera in quattro fasi con una strategia 
 
 I wrapper "colonna" dei mega-menu (classi tipo `column`, `mega-col`) vengono appiattiti: le voci figlie compaiono direttamente sotto la voce parent, senza nodi fittizi.
 
-**Fase 2 — Sitemap XML.** Cerca la sitemap.xml del sito (anche tramite robots.txt) e la usa come rete di sicurezza per non perdere pagine importanti che potrebbero non essere linkate nel menu.
+**Fase 2 — Sitemap XML.** Cerca la sitemap.xml del sito (anche tramite robots.txt). Le URL elencate sono accodate in due modi: un **blocco iniziale** (fino a circa **due quinti del limite pagine** del crawl, minimo 40 URL, tetto 200) viene messo in **testa alla coda prioritaria** insieme al menu, cosi non restano irraggiungibili se il budget si esaurisce prima sulle sole voci di menu; le altre URL della sitemap vanno in **coda secondaria**.
 
-**Fase 3 — Scansione prioritaria.** Scansiona prima tutte le URL raccolte dalle navigazioni (header, footer, sidebar). I link scoperti sulle pagine visitate entrano in coda prioritaria; i link "di contenuto" non prioritari finiscono nella coda secondaria.
+**Fase 3 — Scansione prioritaria.** Elabora la coda prioritaria: prima il **blocco sitemap** in testa, poi le **voci di navigazione**; i nuovi link estratti dalle pagine visitate finiscono in **coda secondaria** (non rimangono in prioritaria).
 
-**Fase 4 — Pagine secondarie.** Solo dopo aver esaurito la coda prioritaria (entro il limite di pagine e profondita), elabora sitemap e altri link dalla coda secondaria.
+**Fase 4 — Pagine secondarie.** Dopo la prioritaria (entro limite pagine e profondita), elabora la coda secondaria (**resto della sitemap** e altri link interni).
+
+**Stesso sito.** Per decidere se seguire un link, `www` e non-`www` sullo **stesso hostname** (es. `example.org` e `www.example.org`) sono considerati **lo stesso sito**.
+
+**Limite noto.** Non c'e un browser con JavaScript: le pagine che esistono solo dopo esecuzione di script nel browser possono non comparire nell'HTML scaricato e restare fuori dalla mappa.
 
 **Prestazioni.** Il download usa piu worker in parallelo, pool di connessioni dedicato, code `deque` e timeout di rete contenuti, cosi una scansione su decine o centinaia di pagine richiede molto meno tempo rispetto a una richiesta alla volta.
 
