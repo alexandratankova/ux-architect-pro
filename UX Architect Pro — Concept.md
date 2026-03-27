@@ -141,9 +141,11 @@ Distribuzione delle pagine per categoria con percentuali, word count medio, e in
 
 ### Excel — Information Architecture
 
-Il file **ux_architect_pro_information_architecture.xlsx** non e una lista casuale di URL: il **primo foglio** segue la **stessa logica dell'IA** usata in app.
+Il file **ux_architect_pro_information_architecture.xlsx** non e una lista casuale di URL: i fogli seguono la **stessa logica dell'IA** e delle viste usate in app.
 
 - **Foglio "Information Architecture"**: una riga per ogni voce di menu nell'ordine gerarchico, con **zona di navigazione** (es. Main Navigation (Header)), **livello**, **percorso IA** (es. `Voce > Sottovoce`), **voce menu**, **URL**, **title** e campi SEO (categoria, status, meta, H1, H2, word count, breadcrumbs, profondita di crawl). In coda, sezione **Altre pagine (non in menu)** per le pagine scansionate ma non presenti in nessun menu. Se il sito non ha navigazioni riconoscibili, il foglio usa la **struttura URL** come fallback (`Struttura URL (fallback)`), in linea con la Sitemap testuale.
+- **Foglio "Sitemap"** (Excel funzionale, allineato al tab Sitemap): colonne **Navigazione / zona**, poi **Livello 1 … Livello N** (fino a **12** livelli, in base alla profondita massima trovata), **Anteprima albero (ASCII)** come nel tab, e **URL (clic per aprire)** con **hyperlink** nativi (testo abbreviato se l'URL e molto lungo, stile link blu sottolineato). Sulla tabella sono attivi **filtri automatici** sulla riga intestazioni e **righe/colonne congelate** con ancoraggio su **B2** (resta fissa la colonna della zona e la riga delle intestazioni). Sotto i dati, una riga di suggerimento ricorda filtri, freeze e link cliccabili.
+- **Foglio "Diagramma"**: immagine PNG del flowchart Mermaid (quando il rendering e disponibile), equivalente al tab Diagramma.
 - **Foglio "Statistiche"**: aggregazioni per categoria (come in precedenza).
 
 I testi delle celle sono sanitizzati per compatibilita con Excel (nessun carattere di controllo illegale tipico degli HTML scrapati).

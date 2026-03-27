@@ -584,17 +584,20 @@ def _path_key_from_url(url: str) -> str:
     return "/".join(parts) if parts else "(home)"
 
 
+SM_EXCEL_MAX_LEVELS = 12
+
+
 def build_sitemap_tree_excel_rows(
     results: list[dict],
     navigations: dict[str, list[dict]] | None,
 ) -> list[dict]:
-    """Righe allineate al tab Sitemap: zone navigazione, testo albero ASCII, URL."""
+    """Righe come il tab Sitemap: zona, livelli gerarchici (etichette), anteprima ASCII, URL."""
     rows: list[dict] = []
     if not results:
         return rows
     url_to_page = {p["url"]: p for p in results}
 
-    def walk_menu(items: list[dict], prefix: str, zone: str) -> None:
+    def walk_menu(items: list[dict], prefix: str, zone: str, ancestors: list[str]) -> None:
         for i, item in enumerate(items):
             last = i == len(items) - 1
             connector = "└── " if last else "├── "
@@ -603,14 +606,16 @@ def build_sitemap_tree_excel_rows(
             if page and page.get("title"):
                 label = page["title"]
             tree_line = f"{prefix}{connector}{label}"
+            levels = ancestors + [label]
             rows.append({
                 "navigazione": zone,
+                "levels": levels,
                 "albero": tree_line,
                 "url": item.get("url") or "",
             })
             extension = "    " if last else "│   "
             if item.get("children"):
-                walk_menu(item["children"], prefix + extension, zone)
+                walk_menu(item["children"], prefix + extension, zone, ancestors + [label])
 
     if navigations:
         home_url = normalize_url(
@@ -618,11 +623,21 @@ def build_sitemap_tree_excel_rows(
         )
         home_page = url_to_page.get(home_url)
         root_title = (home_page.get("title") if home_page else None) or urlparse(results[0]["url"]).netloc
-        rows.append({"navigazione": "(root)", "albero": root_title, "url": home_url})
+        rows.append({
+            "navigazione": "(root)",
+            "levels": [root_title],
+            "albero": root_title,
+            "url": home_url,
+        })
 
         for nav_name, nav_items in navigations.items():
-            rows.append({"navigazione": nav_name, "albero": f"── {nav_name} ──", "url": ""})
-            walk_menu(nav_items, "", nav_name)
+            rows.append({
+                "navigazione": nav_name,
+                "levels": [nav_name],
+                "albero": f"── {nav_name} ──",
+                "url": "",
+            })
+            walk_menu(nav_items, "", nav_name, [])
 
         all_nav_urls = set(flatten_nav_urls(navigations))
         remaining = [
@@ -634,6 +649,7 @@ def build_sitemap_tree_excel_rows(
         if remaining:
             rows.append({
                 "navigazione": "Altre pagine",
+                "levels": ["Altre pagine"],
                 "albero": f"── Altre pagine ({len(remaining)}) ──",
                 "url": "",
             })
@@ -643,6 +659,7 @@ def build_sitemap_tree_excel_rows(
                 lab = page.get("title") or page["url"]
                 rows.append({
                     "navigazione": "Altre pagine",
+                    "levels": ["Altre pagine", lab],
                     "albero": f"{conn}{lab}",
                     "url": page["url"],
                 })
@@ -667,7 +684,9 @@ def build_sitemap_tree_excel_rows(
                     node[part] = {}
                 node = node[part]
 
-        def walk_url_tree(node: dict, prefix: str, current_path: str) -> None:
+        def walk_url_tree(
+            node: dict, prefix: str, current_path: str, ancestors: list[str],
+        ) -> None:
             items = sorted(node.keys())
             for i, key in enumerate(items):
                 last = i == len(items) - 1
@@ -679,20 +698,34 @@ def build_sitemap_tree_excel_rows(
                     if _path_key_from_url(p["url"]) == full_path:
                         url_match = p["url"]
                         break
+                levels = ancestors + [label]
                 rows.append({
                     "navigazione": "Struttura URL",
+                    "levels": levels,
                     "albero": f"{prefix}{connector}{label}",
                     "url": url_match,
                 })
                 extension = "    " if last else "│   "
-                walk_url_tree(node[key], prefix + extension, full_path)
+                walk_url_tree(node[key], prefix + extension, full_path, ancestors + [label])
 
         root_label = urlparse(results[0]["url"]).netloc
         root_title = path_to_title.get("(home)", root_label)
-        rows.append({"navigazione": "Struttura URL", "albero": root_title, "url": ""})
-        walk_url_tree(tree, "", "")
+        rows.append({
+            "navigazione": "Struttura URL",
+            "levels": [root_title],
+            "albero": root_title,
+            "url": "",
+        })
+        walk_url_tree(tree, "", "", [root_title])
 
     return rows
+
+
+def _excel_url_display(url: str, max_len: int = 58) -> str:
+    u = (url or "").strip()
+    if len(u) <= max_len:
+        return u
+    return u[: max_len - 1] + "…"
 
 
 def mermaid_to_png_bytes(mermaid_code: str) -> bytes | None:
@@ -1854,24 +1887,70 @@ def generate_excel(
         )
         ws1.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 55)
 
-    # ── Sheet: Sitemap (stesso albero del tab Sitemap) ──
-    ws_map = wb.create_sheet("Sitemap (albero)")
-    sm_headers = ["Navigazione / zona", "Albero (come in app)", "URL"]
+    # ── Sheet: Sitemap (livelli + anteprima ASCII + hyperlink URL) ──
+    ws_map = wb.create_sheet("Sitemap")
+    sm_rows = build_sitemap_tree_excel_rows(results, navigations)
+    max_depth = 1
+    if sm_rows:
+        max_depth = min(
+            max(len(r.get("levels") or []) for r in sm_rows),
+            SM_EXCEL_MAX_LEVELS,
+        )
+    level_headers = [f"Livello {i}" for i in range(1, max_depth + 1)]
+    sm_headers = (
+        ["Navigazione / zona"]
+        + level_headers
+        + ["Anteprima albero (ASCII)", "URL (clic per aprire)"]
+    )
+    n_h = len(sm_headers)
     for col_idx, h in enumerate(sm_headers, 1):
         cell = ws_map.cell(row=1, column=col_idx, value=h)
         cell.fill = header_fill
         cell.font = header_font
-        cell.alignment = Alignment(horizontal="center")
-    sm_rows = build_sitemap_tree_excel_rows(results, navigations)
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    preview_col = 2 + max_depth
+    url_col = preview_col + 1
+
     for row_idx, row in enumerate(sm_rows, 2):
         ws_map.cell(row=row_idx, column=1, value=_excel_safe_str(row["navigazione"], max_len=200))
-        ws_map.cell(row=row_idx, column=2, value=_excel_safe_str(row["albero"]))
-        ws_map.cell(row=row_idx, column=3, value=_excel_safe_str(row["url"]))
-        for c in range(1, 4):
+        lv = (row.get("levels") or [])[:SM_EXCEL_MAX_LEVELS]
+        for li in range(max_depth):
+            val = _excel_safe_str(lv[li], max_len=500) if li < len(lv) else ""
+            ws_map.cell(row=row_idx, column=2 + li, value=val)
+        ws_map.cell(row=row_idx, column=preview_col, value=_excel_safe_str(row.get("albero", "")))
+        u_raw = (row.get("url") or "").strip()
+        u_cell = ws_map.cell(row=row_idx, column=url_col)
+        if u_raw.startswith(("http://", "https://")):
+            u_cell.value = _excel_url_display(u_raw)
+            u_cell.hyperlink = u_raw
+            u_cell.font = Font(color="0563C1", underline="single")
+        else:
+            u_cell.value = _excel_safe_str(u_raw, max_len=2048)
+        for c in range(1, n_h + 1):
             ws_map.cell(row=row_idx, column=c).border = thin_border
-    ws_map.column_dimensions["A"].width = 30
-    ws_map.column_dimensions["B"].width = 76
-    ws_map.column_dimensions["C"].width = 56
+
+    ws_map.column_dimensions["A"].width = 28
+    for li in range(max_depth):
+        ws_map.column_dimensions[get_column_letter(2 + li)].width = 26
+    ws_map.column_dimensions[get_column_letter(preview_col)].width = 52
+    ws_map.column_dimensions[get_column_letter(url_col)].width = 44
+
+    last_row = len(sm_rows) + 1
+    if last_row >= 1 and n_h >= 1:
+        ws_map.auto_filter.ref = f"A1:{get_column_letter(n_h)}{last_row}"
+        ws_map.freeze_panes = f"B2"
+
+    hint_r = last_row + 2
+    ws_map.merge_cells(
+        start_row=hint_r, start_column=1, end_row=hint_r, end_column=max(n_h, 1),
+    )
+    hc = ws_map.cell(row=hint_r, column=1, value=(
+        "Suggerimento: filtri sulla riga 1; congela già attivo (colonna zona). "
+        "La colonna URL contiene collegamenti cliccabili al sito."
+    ))
+    hc.font = Font(size=9, italic=True, color="6B7280")
+    hc.alignment = Alignment(wrap_text=True, vertical="top")
 
     # ── Sheet: Diagramma (PNG del Mermaid) ──
     ws_diag = wb.create_sheet("Diagramma")
@@ -2406,8 +2485,8 @@ if st.session_state.results is not None:
         with col_xl:
             st.markdown("**Excel — Information Architecture**")
             st.caption(
-                "Fogli: **Information Architecture**, **Sitemap (albero)** (come il tab Sitemap), "
-                "**Diagramma** (immagine PNG del grafico), **Statistiche**."
+                "Fogli: **Information Architecture**, **Sitemap** (livelli gerarchici, anteprima ASCII, "
+                "URL cliccabili, filtri), **Diagramma** (PNG), **Statistiche**."
             )
             try:
                 _excel_bytes = generate_excel(
