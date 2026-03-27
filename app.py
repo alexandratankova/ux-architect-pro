@@ -249,26 +249,28 @@ st.markdown("""
         margin: 0 0 0.35rem 0;
     }
 
-    /* Accento arancione — CTA e controlli primari (allinea al theme) */
+    /* CTA nero; arancione acceso solo per accenti (slider, link, ecc.) */
     :root {
-        --ux-accent: #b45309;
-        --ux-accent-hover: #92400e;
-        --ux-accent-soft: rgba(180, 83, 9, 0.14);
+        --ux-cta: #111827;
+        --ux-cta-hover: #27272a;
+        --ux-accent: #ff6b35;
+        --ux-accent-hover: #e85a28;
+        --ux-accent-soft: rgba(255, 107, 53, 0.16);
     }
 
     div[data-testid="stSidebar"] button[kind="primary"],
     section[data-testid="stSidebar"] button[kind="primary"],
     .stButton > button[kind="primary"] {
-        background-color: var(--ux-accent) !important;
-        border-color: var(--ux-accent) !important;
+        background-color: var(--ux-cta) !important;
+        border-color: var(--ux-cta) !important;
         color: #ffffff !important;
         font-weight: 600 !important;
     }
     div[data-testid="stSidebar"] button[kind="primary"]:hover,
     section[data-testid="stSidebar"] button[kind="primary"]:hover,
     .stButton > button[kind="primary"]:hover {
-        background-color: var(--ux-accent-hover) !important;
-        border-color: var(--ux-accent-hover) !important;
+        background-color: var(--ux-cta-hover) !important;
+        border-color: var(--ux-cta-hover) !important;
     }
 
     /* Slider fill & radio selected */
@@ -276,11 +278,11 @@ st.markdown("""
         background-color: var(--ux-accent) !important;
     }
     div[data-baseweb="slider"] [data-testid="stThumbValue"] {
-        color: #b45309;
+        color: var(--ux-accent);
     }
 
     label[data-testid="stWidgetLabel"] a {
-        color: #b45309;
+        color: var(--ux-accent);
     }
 
     /* Hero vuoto — solo testo centrato (nessuna illustrazione) */
@@ -1465,13 +1467,13 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
         download_btn_css = """
         #dl-btn {
             position: fixed; top: 12px; right: 16px; z-index: 100;
-            background: #b45309; color: #fff; border: none;
+            background: #ff6b35; color: #fff; border: none;
             padding: 8px 18px; border-radius: 8px; cursor: pointer;
             font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
             transition: background .2s, filter .2s;
         }
-        #dl-btn:hover { background: #92400e; filter: brightness(1.05); }
+        #dl-btn:hover { background: #e85a28; filter: brightness(1.05); }
         """
         download_btn_html = '<button type="button" id="dl-btn">Scarica JPEG</button>'
         download_btn_js = """

@@ -1,6 +1,6 @@
 [theme]
-# Arancione accento per CTA, slider e elementi primari
-primaryColor = "#b45309"
+# Arancione accento (slider e widget Streamlit); i pulsanti primari sono neri via CSS in app
+primaryColor = "#ff6b35"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f9fafb"
 textColor = "#111827"
