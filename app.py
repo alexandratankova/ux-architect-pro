@@ -37,11 +37,14 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 # Categorie emergenti dall'analisi (URL + menu), colori assegnati a posteriori
 # ─────────────────────────────────────────────
+# Sfondi scuri: testo bianco in diagramma Mermaid e badge (>= ~4.5:1 WCAG AA).
 CATEGORY_COLOR_PALETTE = [
-    "#4CAF50", "#2196F3", "#87CEEB", "#FFD700", "#FFA500", "#E91E63",
-    "#9C27B0", "#00BCD4", "#607D8B", "#673AB7", "#795548", "#009688",
-    "#3F51B5", "#8BC34A", "#FFC107", "#FF5722", "#00ACC1",
+    "#0F4C81", "#1B5E3A", "#5B1E7A", "#8B1538", "#7A4200", "#006B75",
+    "#4A3728", "#1E4D6B", "#3A2F7A", "#6D1F5C", "#2F5233", "#7A4A00",
+    "#0F3D3D", "#4A148C", "#5C1A1A", "#1A365D",
 ]
+# Colore se la categoria non è in mappa (sfondo scuro, stesso uso del diagramma / badge).
+CATEGORY_COLOR_FALLBACK = "#374151"
 # Fallback quando non si ricava una sezione dal sito (UI / export in italiano)
 CAT_FALLBACK = "Altro"
 
@@ -106,7 +109,7 @@ st.markdown("""
         margin: 0;
         font-size: 0.75rem;
         font-weight: 600;
-        color: #9ca3af;
+        color: #6b7280;
         text-transform: uppercase;
         letter-spacing: 0.6px;
     }
@@ -125,9 +128,9 @@ st.markdown("""
         color: #374151;
         line-height: 1.6;
     }
-    .log-ok  { color: #059669; }
-    .log-err { color: #dc2626; }
-    .log-info { color: #2563eb; }
+    .log-ok  { color: #047857; }
+    .log-err { color: #b91c1c; }
+    .log-info { color: #1d4ed8; }
 
     .category-badge {
         display: inline-block;
@@ -135,7 +138,7 @@ st.markdown("""
         border-radius: 20px;
         font-size: 0.75rem;
         font-weight: 600;
-        color: white;
+        color: #ffffff;
         letter-spacing: 0.2px;
     }
 
@@ -209,7 +212,7 @@ st.markdown("""
         font-size: 0.9rem;
     }
     .cat-meta {
-        color: #9ca3af;
+        color: #6b7280;
         font-size: 0.85rem;
     }
 
@@ -242,15 +245,15 @@ st.markdown("""
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.45px;
-        color: #9ca3af;
+        color: #6b7280;
         margin: 0 0 0.35rem 0;
     }
 
     /* Accento arancione — CTA e controlli primari (allinea al theme) */
     :root {
-        --ux-accent: #FF6B35;
-        --ux-accent-hover: #E85A28;
-        --ux-accent-soft: rgba(255, 107, 53, 0.12);
+        --ux-accent: #b45309;
+        --ux-accent-hover: #92400e;
+        --ux-accent-soft: rgba(180, 83, 9, 0.14);
     }
 
     div[data-testid="stSidebar"] button[kind="primary"],
@@ -273,11 +276,11 @@ st.markdown("""
         background-color: var(--ux-accent) !important;
     }
     div[data-baseweb="slider"] [data-testid="stThumbValue"] {
-        color: var(--ux-accent);
+        color: #b45309;
     }
 
     label[data-testid="stWidgetLabel"] a {
-        color: var(--ux-accent);
+        color: #b45309;
     }
 
     /* Hero vuoto — solo testo centrato (nessuna illustrazione) */
@@ -1347,7 +1350,7 @@ def build_mermaid(results: list[dict], base_url: str,
         cat_class[cat] = cls
         color = palette[cat]
         style_defs.append(
-            f"    classDef {cls} fill:{color},stroke:#333,stroke-width:1px,color:#000"
+            f"    classDef {cls} fill:{color},stroke:#0f172a,stroke-width:1.5px,color:#ffffff"
         )
 
     root_id = make_id("ROOT")
@@ -1399,8 +1402,8 @@ def build_mermaid(results: list[dict], base_url: str,
             lines.append(f'    {section_id}["{safe_name}"]')
             lines.append(f"    {root_id} --> {section_id}")
             style_defs.append(
-                f"    style {section_id} fill:#e8eaf6,stroke:#5c6bc0,"
-                f"stroke-width:2px,color:#283593,font-weight:bold"
+                f"    style {section_id} fill:#dbeafe,stroke:#1e40af,"
+                f"stroke-width:2px,color:#0c4a6e,font-weight:bold"
             )
             for item in nav_items:
                 _add_menu_node(item, section_id)
@@ -1462,13 +1465,13 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
         download_btn_css = """
         #dl-btn {
             position: fixed; top: 12px; right: 16px; z-index: 100;
-            background: #FF6B35; color: #fff; border: none;
+            background: #b45309; color: #fff; border: none;
             padding: 8px 18px; border-radius: 8px; cursor: pointer;
             font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
             transition: background .2s, filter .2s;
         }
-        #dl-btn:hover { background: #e85d2a; filter: brightness(1.05); }
+        #dl-btn:hover { background: #92400e; filter: brightness(1.05); }
         """
         download_btn_html = '<button type="button" id="dl-btn">Scarica JPEG</button>'
         download_btn_js = """
@@ -1598,6 +1601,14 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
         mermaid.initialize({{
             startOnLoad: true,
             theme: 'neutral',
+            themeVariables: {{
+                primaryColor: '#e5e7eb',
+                primaryTextColor: '#0f172a',
+                primaryBorderColor: '#334155',
+                lineColor: '#475569',
+                secondaryColor: '#f1f5f9',
+                tertiaryColor: '#f8fafc',
+            }},
             flowchart: {{ useMaxWidth: false, htmlLabels: true, curve: 'basis' }},
             securityLevel: 'loose'
         }});
@@ -2009,7 +2020,7 @@ def generate_excel(
         ws2.cell(row=row_idx, column=6, value=sum(1 for p in pages if not p.get("h1")))
         ws2.cell(row=row_idx, column=7, value=sum(1 for p in pages if p.get("status_code") == 404))
 
-        cat_hex = stat_palette.get(cat, "#9E9E9E").lstrip("#")
+        cat_hex = stat_palette.get(cat, CATEGORY_COLOR_FALLBACK).lstrip("#")
         ws2.cell(row=row_idx, column=1).fill = PatternFill(
             start_color=cat_hex, end_color=cat_hex, fill_type="solid",
         )
@@ -2218,7 +2229,7 @@ if st.session_state.results is not None:
         st.markdown(f'<div class="stat-card"><h3>Categorie</h3>'
                      f'<div class="value">{n_categories}</div></div>', unsafe_allow_html=True)
     with c4:
-        color_404 = "#dc2626" if n_404 > 0 else "#059669"
+        color_404 = "#b91c1c" if n_404 > 0 else "#047857"
         st.markdown(f'<div class="stat-card"><h3>Errori 404</h3>'
                      f'<div class="value" style="color:{color_404}">{n_404}</div></div>', unsafe_allow_html=True)
 
@@ -2367,7 +2378,7 @@ if st.session_state.results is not None:
         for page in filtered:
             status = page["status_code"]
             cat = page.get("category", CAT_FALLBACK)
-            cat_color = _cat_colors_ui.get(cat, "#9E9E9E")
+            cat_color = _cat_colors_ui.get(cat, CATEGORY_COLOR_FALLBACK)
 
             if status == 404:
                 status_label = "404"
@@ -2406,7 +2417,7 @@ if st.session_state.results is not None:
         cat_counts = Counter(p.get("category", CAT_FALLBACK) for p in results)
         for cat, count in sorted(cat_counts.items(), key=lambda x: -x[1]):
             pct = count / max(total_pages, 1) * 100
-            color = _cat_colors_ui.get(cat, "#9E9E9E")
+            color = _cat_colors_ui.get(cat, CATEGORY_COLOR_FALLBACK)
             st.markdown(
                 f'<div class="cat-row">'
                 f'<span class="cat-dot" style="background:{color}"></span>'
