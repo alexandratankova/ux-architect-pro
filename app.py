@@ -409,6 +409,36 @@ def normalize_url(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
+def export_site_slug(start_url: str, max_len: int = 48) -> str:
+    """Hostname normalizzato per nomi file (report .json, .xlsx, diagramma, ecc.)."""
+    raw = (start_url or "").strip()
+    if not raw:
+        return "sito"
+    if "://" not in raw:
+        raw = "https://" + raw
+    try:
+        netloc = urlparse(raw).netloc or ""
+    except Exception:
+        return "sito"
+    if not netloc:
+        return "sito"
+    netloc = netloc.lower()
+    if "@" in netloc:
+        netloc = netloc.split("@")[-1]
+    if netloc.startswith("["):
+        if "]:" in netloc:
+            netloc = netloc[: netloc.index("]:") + 1]
+    elif ":" in netloc:
+        netloc = netloc.rsplit(":", 1)[0]
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    slug = re.sub(r"[^a-z0-9.]+", "_", netloc)
+    slug = re.sub(r"_+", "_", slug).strip("._")
+    if not slug:
+        slug = "sito"
+    return slug[:max_len]
+
+
 def is_same_domain(url: str, base_domain: str) -> bool:
     parsed = urlparse(url)
     return parsed.netloc == base_domain or parsed.netloc == ""
@@ -1524,34 +1554,74 @@ def build_mermaid(results: list[dict], base_url: str,
 
 
 def render_mermaid_html(mermaid_code: str, height: int = 600,
-                        show_download: bool = False) -> str:
-    """Return a self-contained HTML page that renders a Mermaid diagram (zoom + opz. download)."""
+                        show_download: bool = False,
+                        diagram_download_basename: str = "ux_architect_pro_diagram") -> str:
+    """Return a self-contained HTML page that renders a Mermaid diagram (zoom + opz. download).
+
+    diagram_download_basename: prefisso senza estensione per SVG/JPEG (es. ux_architect_pro_diagram_example_org).
+    """
     download_btn_css = ""
     download_btn_html = ""
     download_btn_js = ""
 
     if show_download:
         download_btn_css = """
-        #dl-btn {
+        #dl-actions {
             position: fixed; top: 12px; right: 16px; z-index: 100;
+            display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+        }
+        #dl-actions button {
             background: #111827; color: #fff; border: none;
-            padding: 8px 18px; border-radius: 8px; cursor: pointer;
+            padding: 8px 16px; border-radius: 8px; cursor: pointer;
             font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
             box-shadow: 0 2px 6px rgba(0,0,0,.15);
             transition: background .2s, filter .2s;
+            white-space: nowrap;
         }
-        #dl-btn:hover { background: #27272a; filter: brightness(1.05); }
+        #dl-actions button:hover { background: #27272a; filter: brightness(1.05); }
+        #dl-actions button.dl-outline {
+            background: #fff; color: #111827; border: 1px solid #e5e7eb;
+        }
+        #dl-actions button.dl-outline:hover { background: #f9fafb; filter: none; }
         """
-        download_btn_html = '<button type="button" id="dl-btn">Scarica JPEG</button>'
-        download_btn_js = """
-        document.getElementById('dl-btn').addEventListener('click', function() {
-            var svg = document.querySelector('#diagram-inner svg');
+        download_btn_html = """<div id="dl-actions">
+        <button type="button" id="dl-btn-svg" class="dl-outline" title="Vettoriale, modificabile in Figma/Illustrator">Scarica SVG</button>
+        <button type="button" id="dl-btn-jpeg" title="Immagine raster per slide">Scarica JPEG</button>
+        </div>"""
+        _dl_base = json.dumps(diagram_download_basename)
+        download_btn_js = f"""
+        function getDiagramSvg() {{
+            return document.querySelector('#diagram-inner svg');
+        }}
+        var __dlBase = {_dl_base};
+        document.getElementById('dl-btn-svg').addEventListener('click', function() {{
+            var svg = getDiagramSvg();
+            if (!svg) return;
+            var clone = svg.cloneNode(true);
+            if (!clone.getAttribute('xmlns')) {{
+                clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            }}
+            if (!clone.getAttribute('xmlns:xlink')) {{
+                clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+            }}
+            var raw = new XMLSerializer().serializeToString(clone);
+            var svgOut = '<?xml version="1.0" encoding="UTF-8"?>' + raw;
+            var blob = new Blob([svgOut], {{ type: 'image/svg+xml;charset=utf-8' }});
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.download = __dlBase + '.svg';
+            a.href = url;
+            a.click();
+            URL.revokeObjectURL(url);
+        }});
+        document.getElementById('dl-btn-jpeg').addEventListener('click', function() {{
+            var svg = getDiagramSvg();
             if (!svg) return;
             var svgData = new XMLSerializer().serializeToString(svg);
             var canvas = document.createElement('canvas');
             var ctx = canvas.getContext('2d');
             var img = new Image();
-            img.onload = function() {
+            img.onload = function() {{
                 var sc = 2;
                 canvas.width = img.width * sc;
                 canvas.height = img.height * sc;
@@ -1559,12 +1629,12 @@ def render_mermaid_html(mermaid_code: str, height: int = 600,
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 var a = document.createElement('a');
-                a.download = 'sitemap_diagram.jpg';
+                a.download = __dlBase + '.jpg';
                 a.href = canvas.toDataURL('image/jpeg', 0.95);
                 a.click();
-            };
+            }};
             img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
-        });
+        }});
         """
 
     return f"""<!DOCTYPE html>
@@ -2271,6 +2341,12 @@ if st.session_state.results is not None:
         st.markdown(f'<div class="stat-card"><h3>Errori 404</h3>'
                      f'<div class="value" style="color:{color_404}">{n_404}</div></div>', unsafe_allow_html=True)
 
+    _report_base_url = (st.session_state.get("crawl_start_url") or "").strip()
+    if not _report_base_url and results:
+        _rp = urlparse(results[0]["url"])
+        _report_base_url = f"{_rp.scheme}://{_rp.netloc}/"
+    _export_slug = export_site_slug(_report_base_url)
+
     st.markdown("---")
 
     # ── Tabs (Sitemap e Diagramma per primi) ──
@@ -2398,12 +2474,17 @@ if st.session_state.results is not None:
             "scendendo nella gerarchia i riquadri diventano più leggeri. "
             "Usa <strong>+ / − / Reset</strong> in alto al centro per lo zoom, oppure "
             "<strong>Ctrl + rotellina</strong> sul diagramma. Scroll nel riquadro per spostarti. "
-            "Il pulsante in alto a destra scarica il JPEG.</div>",
+            "In alto a destra: <strong>Scarica SVG</strong> (vettoriale) o <strong>Scarica JPEG</strong> (immagine).</div>",
             unsafe_allow_html=True,
         )
 
         mermaid_code = st.session_state.mermaid_code
-        diagram_html = render_mermaid_html(mermaid_code, height=650, show_download=True)
+        diagram_html = render_mermaid_html(
+            mermaid_code,
+            height=650,
+            show_download=True,
+            diagram_download_basename=f"ux_architect_pro_diagram_{_export_slug}",
+        )
         components.html(diagram_html, height=720, scrolling=True)
 
         with st.expander("Mostra codice Mermaid"):
@@ -2459,10 +2540,7 @@ if st.session_state.results is not None:
         st.markdown('<div class="section-title">Esportazione dati</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Scarica i risultati nei formati disponibili</div>', unsafe_allow_html=True)
 
-        _start_share = (st.session_state.get("crawl_start_url") or "").strip()
-        if not _start_share and results:
-            _p0 = urlparse(results[0]["url"])
-            _start_share = f"{_p0.scheme}://{_p0.netloc}/"
+        _start_share = _report_base_url
         _share_pack = build_share_pack(
             _start_share, results, st.session_state.navigations, errors_404,
         )
@@ -2480,7 +2558,7 @@ if st.session_state.results is not None:
         st.download_button(
             "Scarica rapporto condivisibile (.json)",
             data=_share_json,
-            file_name="ux_architect_pro_rapporto.json",
+            file_name=f"ux_architect_pro_rapporto_{_export_slug}.json",
             mime="application/json",
             use_container_width=True,
             key="dl_share_json",
@@ -2518,7 +2596,7 @@ if st.session_state.results is not None:
                 st.download_button(
                     "Scarica Excel",
                     data=_excel_bytes,
-                    file_name="ux_architect_pro_information_architecture.xlsx",
+                    file_name=f"ux_architect_pro_ia_{_export_slug}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key="dl_excel",
@@ -2530,7 +2608,7 @@ if st.session_state.results is not None:
             st.download_button(
                 "Scarica Mermaid",
                 data=f"```mermaid\n{st.session_state.mermaid_code}\n```",
-                file_name="sitemap_mermaid.md",
+                file_name=f"ux_architect_pro_mermaid_{_export_slug}.md",
                 mime="text/markdown",
                 use_container_width=True,
                 key="dl_mermaid",

@@ -114,13 +114,17 @@ Dopo il crawl, i risultati sono organizzati in **schede nell'ordine seguente** (
 3. **Tabella** — elenco pagine con filtri  
 4. **Esporta** — download Excel, Mermaid, condivisione rapporto
 
+Sopra le schede, un **Riepilogo** in quattro card mostra in sintesi: numero di pagine, **word count medio**, numero di **categorie** rilevate e conteggio **errori 404** (con colore di stato verde/rosso).
+
 ### Sitemap / Information Architecture (prima scheda)
 
-Nel tab **Sitemap** la struttura e introdotta con il titolo **Information Architecture**. Ogni navigazione estratta ha il **suo blocco** (HTML) con l'etichetta professionale (es. Main Navigation (Header)) e l'albero delle voci in monospace come le vedrebbe un utente; la profondità è suggerita da **peso e colore del testo** sulle righe, senza barra colorata laterale. Le pagine non coperte da nessuna navigazione compaiono in una sezione **Altre pagine**. Se non si riesce a estrarre navigazioni, la vista torna alla gerarchia basata sui percorsi URL.
+Nel tab **Sitemap** la struttura e introdotta con il titolo **Information Architecture**. Ogni navigazione estratta ha il **suo blocco** (HTML) con intestazione in stile etichetta (es. Main Navigation (Header)) e l'albero delle voci in **monospace** (`├──`, `└──`, …), come una vista ad albero classica. La **profondità gerarchica** è suggerita in modo leggero da **peso**, **colore** e **dimensione del testo** sulle righe (livelli superficiali più scuri e marcati; livelli profondi leggermente più tenui e compatti), **senza barra colorata** sul lato sinistro. Le pagine non coperte da nessuna navigazione compaiono in una sezione **Altre pagine**. Se non si riesce a estrarre navigazioni, la vista torna alla gerarchia basata sui **percorsi URL**.
 
 ### Diagramma visuale (seconda scheda)
 
-Mappa interattiva del sito renderizzata con Mermaid.js direttamente nell'app. Il diagramma rispecchia le **navigazioni estratte**: ogni tipo (Main Navigation (Header), Secondary Navigation (Footer), ecc.) appare come nodo intermedio tra la root e le voci, con stile distinto; sotto ogni sezione si espandono le voci e i sottomenu con i **titoli effettivi delle pagine** come etichette. Ogni nodo pagina e colorato in base alla categoria; la **distanza dalla home** si legge anche da spessore del bordo del riquadro e dimensione del testo. Il layout del flowchart e **orizzontale** (left-to-right), senza schiacciare il grafico nel contenitore, cosi la lettura segue l'asse orizzontale. Un pulsante **Scarica JPEG** (nell'iframe del diagramma) esporta l'immagine del grafico in alta risoluzione per slide o documenti.
+Mappa interattiva del sito renderizzata con **Mermaid.js** in un iframe dedicato. Il diagramma rispecchia le **navigazioni estratte**: ogni tipo (Main Navigation (Header), Secondary Navigation (Footer), ecc.) appare come **nodo sezione** tra la root e le voci (sfondo viola molto chiaro, testo scuro in grassetto); sotto ogni sezione si espandono voci e sottomenu con i **titoli effettivi delle pagine** come etichette. I **nodi pagina** usano una **palette pastello** per **categoria**; il colore del testo su ogni riquadro e scelto automaticamente (**nero o bianco**) in base al contrasto sullo sfondo. La **distanza dalla home** nel grafo si legge anche da **spessore del bordo** del riquadro e **dimensione del font** (più marcato vicino alla root, più leggero in profondità). Il flowchart e **orizzontale** (LR), con **padding** e **spaziatura** tra nodi (`nodeSpacing` / `rankSpacing`) per aerare il disegno.
+
+Nella toolbar dell'iframe: **zoom + / − / Reset**, zoom con **Ctrl + rotellina** sul diagramma, scroll nel riquadro per spostarsi. In alto a destra, due export dal **SVG** renderizzato da Mermaid: **Scarica SVG** (file vettoriale `.svg`, adatto a Figma, Illustrator o il web) e **Scarica JPEG** (raster ad alta risoluzione via canvas, utile per slide).
 
 Le pagine crawlate ma assenti da tutte le navigazioni sono raggruppate sotto **Altre pagine**.
 
@@ -128,15 +132,17 @@ Se il sito non espone navigazioni riconoscibili, il diagramma usa come fallback 
 
 ### Tabella completa
 
-Lista di tutte le pagine analizzate con filtro per categoria. Ogni riga si espande per mostrare il dettaglio completo: URL, titoli, meta description, lista H2, word count, breadcrumbs.
+Lista di tutte le pagine analizzate con **filtro multiplo per categoria**. Ogni riga si espande per mostrare il dettaglio: URL, title, H1, meta description, elenco H2, word count, depth, breadcrumbs. Nella colonna di destra compare un **badge categoria** colorato (stessa logica pastello / contrasto del diagramma).
 
 ---
 
 ## Esportazione
 
+I nomi dei file scaricati includono un **slug dell'host** del sito analizzato (URL di partenza del crawl, senza `www.`, porta rimossa, caratteri non sicuri normalizzati), cosi si riconoscono subito i report sul disco. Esempi: `ux_architect_pro_rapporto_example.org.json`, `ux_architect_pro_ia_example.org.xlsx`, `ux_architect_pro_mermaid_example.org.md`, `ux_architect_pro_diagram_example.org.svg`.
+
 ### Excel — Information Architecture
 
-Il file **ux_architect_pro_information_architecture.xlsx** non e una lista casuale di URL: i fogli seguono la **stessa logica dell'IA** e delle viste usate in app.
+Il file Excel non e una lista casuale di URL: i fogli seguono la **stessa logica dell'IA** e delle viste usate in app.
 
 - **Foglio "Information Architecture"**: una riga per ogni voce di menu nell'ordine gerarchico, con **zona di navigazione** (es. Main Navigation (Header)), **livello**, **percorso IA** (es. `Voce > Sottovoce`), **voce menu**, **URL**, **title** e campi SEO (categoria, status, meta, H1, H2, word count, breadcrumbs, profondita di crawl). In coda, sezione **Altre pagine (non in menu)** per le pagine scansionate ma non presenti in nessun menu. Se il sito non ha navigazioni riconoscibili, il foglio usa la **struttura URL** come fallback (`Struttura URL (fallback)`), in linea con la Sitemap testuale.
 - **Foglio "Sitemap"** (Excel funzionale, allineato al tab Sitemap): colonne **Navigazione / zona**, poi **Livello 1 … Livello N** (fino a **12** livelli, in base alla profondita massima trovata), **Anteprima albero (ASCII)** come nel tab, e **URL (clic per aprire)** con **hyperlink** nativi (testo abbreviato se l'URL e molto lungo, stile link blu sottolineato). Sulla tabella sono attivi **filtri automatici** sulla riga intestazioni e **righe/colonne congelate** con ancoraggio su **B2** (resta fissa la colonna della zona e la riga delle intestazioni). Sotto i dati, una riga di suggerimento ricorda filtri, freeze e link cliccabili.
@@ -154,13 +160,20 @@ Dal tab **Esporta** si puo scaricare il codice del diagramma in formato Markdown
 
 ### Immagine del diagramma
 
-Dal tab **Diagramma**, il pulsante **Scarica JPEG** genera un file immagine del grafico renderizzato (utile per presentazioni e report senza dipendere da tool esterni).
+Dal tab **Diagramma**, dall'iframe si puo scaricare il grafico come **SVG** (nativo, stesso output vettoriale del renderer) o come **JPEG** (esportazione raster per presentazioni).
 
 ---
 
 ## Design
 
-L'interfaccia segue un approccio minimalista e professionale ispirato ai tool di design moderni: tipografia Inter, palette neutra con accenti di colore solo per le categorie, card con bordi sottili, ampio respiro tra le sezioni. Nessun uso di emoji nell'interfaccia — i colori e la tipografia guidano la gerarchia visiva.
+L'interfaccia e **minimalista e professionale**: tipografia **Inter**, sfondo chiaro, **card** con bordi sottili e ampio respiro tra le sezioni.
+
+- **Azioni primarie** — i pulsanti principali (es. avvio crawl, scarica) sono **neri** (`#111827`) con hover grigio scuro; non c'e un arancione di brand.
+- **Accent UI** — slider, valori numerici accanto agli slider e link nelle etichette dei widget usano un **grigio ardesia** (`#475569`), allineato al `primaryColor` del tema Streamlit in `config.toml`.
+- **Categorie** — nel diagramma, nella **legenda in sidebar**, nei badge in tabella e nelle celle colorate del foglio Excel (dove previsto), le categorie usano **colori pastello** distinti; il **testo** su ogni sfondo e scelto per **contrasto** (chiaro/scuro) cosi resta leggibile.
+- **Contenuto dell'app** — nessuna emoji nei testi o nei controlli della UI; colori e tipografia guidano la gerarchia. (Il favicon della pagina Streamlit puo restare un'icona separata dal contenuto.)
+
+La **sidebar** ospita la scelta **fonte dati** (nuovo crawl da URL oppure caricamento rapporto **.json**), i parametri di crawl e, dopo i risultati, la **legenda categorie** con punti colorati allineati alla palette.
 
 ---
 
@@ -173,7 +186,7 @@ L'interfaccia segue un approccio minimalista e professionale ispirato ai tool di
 | Crawl | `requests` (Session + pool connessioni), `concurrent.futures` per fetch paralleli |
 | Parser HTML | BeautifulSoup + lxml |
 | Parser Sitemap | lxml-xml |
-| Diagrammi | Mermaid.js (rendering client-side), export JPEG via canvas nel browser |
+| Diagrammi | Mermaid.js (client-side), export **SVG** (serializzazione DOM) e **JPEG** (canvas) nel browser |
 | Export Excel | openpyxl |
 | Hosting | Streamlit Community Cloud |
 
@@ -194,3 +207,5 @@ Non richiede account, login o configurazione. Basta aprire il link e iniziare a 
 Il codice sorgente e disponibile su GitHub:
 
 **https://github.com/alexandratankova/ux-architect-pro**
+
+Nel repo e presente anche **`preview-hierarchy.html`**: pagina HTML statica (con stessi stili Sitemap di esempio e un mini diagramma Mermaid) utile per un'**anteprima in locale** dopo `python3 -m http.server` nella cartella del progetto; non fa parte del flusso Streamlit in produzione.
