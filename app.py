@@ -35,33 +35,39 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# Category definitions
+# Categorie emergenti dall'analisi (URL + menu), colori assegnati a posteriori
 # ─────────────────────────────────────────────
-CATEGORIES = {
-    "Home":             {"color": "#4CAF50", "icon": "🏠"},
-    "Blog Post":        {"color": "#2196F3", "icon": "📝"},
-    "Blog Archive":     {"color": "#87CEEB", "icon": "📚"},
-    "Product Page":     {"color": "#FFD700", "icon": "🛍️"},
-    "Product Category": {"color": "#FFA500", "icon": "📦"},
-    "Checkout/Cart":    {"color": "#E91E63", "icon": "🛒"},
-    "Contact":          {"color": "#9C27B0", "icon": "📧"},
-    "Landing Page":     {"color": "#00BCD4", "icon": "🚀"},
-    "Legal/Privacy":    {"color": "#607D8B", "icon": "⚖️"},
-    "Other":            {"color": "#9E9E9E", "icon": "📄"},
-}
+CATEGORY_COLOR_PALETTE = [
+    "#4CAF50", "#2196F3", "#87CEEB", "#FFD700", "#FFA500", "#E91E63",
+    "#9C27B0", "#00BCD4", "#607D8B", "#673AB7", "#795548", "#009688",
+    "#3F51B5", "#8BC34A", "#FFC107", "#FF5722", "#00ACC1",
+]
+# Fallback quando non si ricava una sezione dal sito (UI / export in italiano)
+CAT_FALLBACK = "Altro"
 
-MERMAID_COLORS = {
-    "Home":             "#4CAF50",
-    "Blog Post":        "#2196F3",
-    "Blog Archive":     "#87CEEB",
-    "Product Page":     "#FFD700",
-    "Product Category": "#FFA500",
-    "Checkout/Cart":    "#E91E63",
-    "Contact":          "#9C27B0",
-    "Landing Page":     "#00BCD4",
-    "Legal/Privacy":    "#607D8B",
-    "Other":            "#9E9E9E",
-}
+
+def category_palette_map(categories: list[str]) -> dict[str, str]:
+    """Un colore stabile per ogni nome categoria (ordinamento alfabetico = ordine palette)."""
+    uniq = sorted(set(categories))
+    return {
+        c: CATEGORY_COLOR_PALETTE[i % len(CATEGORY_COLOR_PALETTE)]
+        for i, c in enumerate(uniq)
+    }
+
+
+def _excel_font_on_fill(hex_no_hash: str) -> str:
+    """Testo nero o bianco per leggibilità su sfondo colore (foglio Statistiche)."""
+    h = (hex_no_hash or "").lstrip("#")
+    if len(h) != 6:
+        return "FFFFFF"
+    try:
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
+        lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        return "000000" if lum > 0.62 else "FFFFFF"
+    except ValueError:
+        return "FFFFFF"
 
 # ─────────────────────────────────────────────
 # Styling
@@ -870,73 +876,122 @@ def extract_breadcrumbs(soup: BeautifulSoup) -> str:
 
 
 # ─────────────────────────────────────────────
-# Categorization engine
+# Categorizzazione emergente (menu + struttura URL del sito analizzato)
 # ─────────────────────────────────────────────
 
-URL_PATTERNS = {
-    "Blog Post":        [r"/blog/.+", r"/article/.+", r"/post/.+", r"/news/.+/\d", r"/magazine/.+"],
-    "Blog Archive":     [r"/blog/?$", r"/articles/?$", r"/news/?$", r"/magazine/?$", r"/category/"],
-    "Product Page":     [r"/product/.+", r"/prodotto/.+", r"/shop/.+/.+", r"/p/", r"/item/.+"],
-    "Product Category": [r"/product-category/", r"/categoria-prodotto/", r"/shop/?$", r"/collections?/", r"/negozio/?$"],
-    "Checkout/Cart":    [r"/checkout", r"/cart", r"/carrello", r"/cassa", r"/order", r"/basket"],
-    "Contact":          [r"/contact", r"/contatti", r"/contattaci", r"/reach-us", r"/support"],
-    "Landing Page":     [r"/lp/", r"/landing", r"/promo", r"/campaign", r"/offerta"],
-    "Legal/Privacy":    [r"/privacy", r"/legal", r"/terms", r"/cookie", r"/gdpr", r"/imprint",
-                         r"/impressum", r"/disclaimer", r"/informativa"],
-}
-
-DOM_KEYWORDS = {
-    "Blog Post":        ["article", "post-content", "entry-content", "blog-post", "single-post"],
-    "Blog Archive":     ["blog-listing", "post-list", "archive", "blog-grid"],
-    "Product Page":     ["add-to-cart", "product-price", "product-detail", "add_to_cart",
-                         "single-product", "product-summary", "buy-now"],
-    "Product Category": ["product-list", "product-grid", "product-archive", "shop-listing"],
-    "Checkout/Cart":    ["checkout-form", "cart-item", "woocommerce-checkout", "order-summary"],
-    "Contact":          ["contact-form", "wpcf7", "form-submit", "email-form"],
-    "Landing Page":     ["hero-section", "cta-button", "landing-hero", "hero-banner"],
-    "Legal/Privacy":    ["privacy-policy", "cookie-policy", "terms-conditions"],
-}
-
-OG_TYPE_MAP = {
-    "article": "Blog Post",
-    "blog":    "Blog Post",
-    "product": "Product Page",
-}
+_LOCALE_SEGMENTS = frozenset({
+    "en", "it", "fr", "de", "es", "pt", "nl", "pl", "ru", "zh", "ja", "ko",
+    "ar", "sv", "da", "no", "fi", "cs", "sk", "hu", "ro", "bg", "el", "tr", "uk",
+})
+_SKIP_PATH_SEGMENTS = frozenset({
+    "wp", "wp-content", "static", "assets", "cdn", "uploads", "media", "files",
+    "public", "dist", "js", "css", "img", "images", "fonts", "vendors",
+})
+_META_PATH_SEGMENTS = frozenset({
+    "category", "tag", "author", "page", "archives", "taxonomy", "tipo", "categoria",
+})
 
 
-def categorize_page(page_data: dict, base_url: str) -> str:
-    """Classify a page by crossing URL patterns, og:type, and DOM keywords."""
+def _humanize_url_segment(seg: str) -> str:
+    s = unquote(seg).strip().replace("-", " ").replace("_", " ")
+    parts = [w.capitalize() for w in s.split() if w]
+    label = " ".join(parts)[:50].strip()
+    return label or CAT_FALLBACK
+
+
+def _category_from_url_path(url: str, base_url: str) -> str | None:
+    """Primo segmento di percorso significativo (dopo eventuale lingua WP / cartelle tecniche)."""
+    parsed = urlparse(url)
+    base_parsed = urlparse(base_url)
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if not parts:
+        return None
+    i = 0
+    if len(parts[0]) == 2 and parts[0].lower() in _LOCALE_SEGMENTS:
+        i = 1
+    if i >= len(parts):
+        return None
+    seg = parts[i]
+    low = seg.lower()
+    if low in _SKIP_PATH_SEGMENTS:
+        i += 1
+        if i >= len(parts):
+            return None
+        seg = parts[i]
+        low = seg.lower()
+    if low in _META_PATH_SEGMENTS and i + 1 < len(parts):
+        return _humanize_url_segment(parts[i + 1])
+    # Homepage del sito come path unico slug
+    if len(parts) == 1 and normalize_url(url) == normalize_url(base_url):
+        return None
+    return _humanize_url_segment(seg)
+
+
+def _nav_section_label_for_url(
+    navigations: dict[str, list[dict]],
+    page_url: str,
+) -> str | None:
+    """Etichetta di sezione dal menu: genitore della voce che punta a questa URL (o la voce stessa)."""
+    target = normalize_url(page_url)
+    best_depth = -1
+    best: str | None = None
+
+    def walk(items: list[dict], ancestors: list[str]) -> None:
+        nonlocal best_depth, best
+        for item in items:
+            lab = (item.get("label") or "").strip()
+            children = item.get("children") or []
+            chain = ancestors + ([lab] if lab else [])
+            u = (item.get("url") or "").strip()
+            if u:
+                try:
+                    if normalize_url(u) == target:
+                        d = len(chain)
+                        if d > best_depth:
+                            best_depth = d
+                            if len(chain) >= 2:
+                                best = chain[-2]
+                            elif chain:
+                                best = chain[-1]
+                except Exception:
+                    pass
+            walk(children, chain)
+
+    for items in navigations.values():
+        walk(items, [])
+    if not best:
+        return None
+    return " ".join(best.split())[:50] or None
+
+
+def infer_page_category(
+    page_data: dict,
+    base_url: str,
+    navigations: dict[str, list[dict]] | None = None,
+) -> str:
+    """Assegna una categoria che emerge dal sito: Home, voce di menu (sezione), o segmento URL."""
     url = page_data["url"]
     parsed = urlparse(url)
     path = unquote(parsed.path).lower()
 
+    nu_page = normalize_url(url)
+    nu_base = normalize_url(base_url)
+    if nu_page == nu_base:
+        return "Home"
     if path in ("", "/", "/index.html", "/index.php", "/home", "/homepage"):
         if urlparse(base_url).path.rstrip("/") in ("", path.rstrip("/")):
             return "Home"
 
-    og = page_data.get("og_type", "").lower().strip()
-    if og in OG_TYPE_MAP:
-        return OG_TYPE_MAP[og]
+    if navigations:
+        nav_lab = _nav_section_label_for_url(navigations, url)
+        if nav_lab:
+            return nav_lab
 
-    scores: Counter = Counter()
+    path_cat = _category_from_url_path(url, base_url)
+    if path_cat:
+        return path_cat
 
-    for cat, patterns in URL_PATTERNS.items():
-        for pat in patterns:
-            if re.search(pat, path):
-                scores[cat] += 2
-                break
-
-    page_html_lower = ""
-    if "_html" in page_data:
-        page_html_lower = page_data["_html"].lower()
-    for cat, keywords in DOM_KEYWORDS.items():
-        for kw in keywords:
-            if kw in page_html_lower:
-                scores[cat] += 1
-
-    if scores:
-        return scores.most_common(1)[0][0]
-    return "Other"
+    return CAT_FALLBACK
 
 
 # ─────────────────────────────────────────────
@@ -1250,12 +1305,17 @@ def build_mermaid(results: list[dict], base_url: str,
     lines = ["graph LR"]
     node_classes: list[str] = []
 
-    style_defs = []
+    unique_cats = sorted({p.get("category", CAT_FALLBACK) for p in results} | {"Home", CAT_FALLBACK})
+    palette = category_palette_map(unique_cats)
+    style_defs: list[str] = []
     cat_class: dict[str, str] = {}
-    for i, (cat, color) in enumerate(MERMAID_COLORS.items()):
+    for i, cat in enumerate(unique_cats):
         cls = f"cat{i}"
         cat_class[cat] = cls
-        style_defs.append(f"    classDef {cls} fill:{color},stroke:#333,stroke-width:1px,color:#000")
+        color = palette[cat]
+        style_defs.append(
+            f"    classDef {cls} fill:{color},stroke:#333,stroke-width:1px,color:#000"
+        )
 
     root_id = make_id("ROOT")
     root_label = urlparse(base_url).netloc
@@ -1265,7 +1325,9 @@ def build_mermaid(results: list[dict], base_url: str,
     root_label = root_label.replace('"', "'")
     lines.append(f'    {root_id}["{root_label}"]')
     if home_page:
-        node_classes.append(f"    class {root_id} {cat_class.get(home_page.get('category', 'Other'), 'cat0')}")
+        node_classes.append(
+            f"    class {root_id} {cat_class.get(home_page.get('category', CAT_FALLBACK), 'cat0')}"
+        )
 
     rendered_urls: set[str] = set()
     if home_page:
@@ -1285,9 +1347,9 @@ def build_mermaid(results: list[dict], base_url: str,
             rendered_urls.add(page["url"])
             if page.get("title"):
                 label = page["title"][:45].replace('"', "'")
-            cat = page.get("category", "Other")
+            cat = page.get("category", CAT_FALLBACK)
         else:
-            cat = "Other"
+            cat = CAT_FALLBACK
 
         nid = make_id(item.get("label", "item"))
         lines.append(f'    {nid}["{label}"]')
@@ -1316,12 +1378,12 @@ def build_mermaid(results: list[dict], base_url: str,
             other_id = make_id("altre_pagine")
             lines.append(f'    {other_id}["Altre pagine ({len(remaining)})"]')
             lines.append(f"    {root_id} --> {other_id}")
-            node_classes.append(f"    class {other_id} {cat_class.get('Other', 'cat0')}")
+            node_classes.append(f"    class {other_id} {cat_class.get(CAT_FALLBACK, 'cat0')}")
             for page in remaining[:max_nodes - node_count]:
                 node_count += 1
                 nid = make_id(page["url"])
                 plabel = (page.get("title") or page["url"])[:45].replace('"', "'")
-                cat = page.get("category", "Other")
+                cat = page.get("category", CAT_FALLBACK)
                 lines.append(f'    {nid}["{plabel}"]')
                 lines.append(f"    {other_id} --> {nid}")
                 node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
@@ -1339,10 +1401,10 @@ def build_mermaid(results: list[dict], base_url: str,
                 page = path_to_page.get(full_path)
                 if page:
                     label = (page.get("title") or key)[:45].replace('"', "'")
-                    cat = page.get("category", "Other")
+                    cat = page.get("category", CAT_FALLBACK)
                 else:
                     label = key
-                    cat = "Other"
+                    cat = CAT_FALLBACK
                 lines.append(f'    {nid}["{label}"]')
                 lines.append(f"    {parent_id} --> {nid}")
                 node_classes.append(f"    class {nid} {cat_class.get(cat, 'cat0')}")
@@ -1573,8 +1635,7 @@ def apply_share_pack(data: dict) -> None:
     errors_404 = data.get("errors_404") or []
     for page in results:
         page.setdefault("_html", "")
-        if "category" not in page:
-            page["category"] = categorize_page(page, start_url)
+        page["category"] = infer_page_category(page, start_url, navigations)
     st.session_state.results = results
     st.session_state.errors_404 = errors_404
     st.session_state.navigations = navigations
@@ -1603,7 +1664,7 @@ def _ia_rows_from_navigations(
             url = (item.get("url") or "").strip()
             page = _excel_lookup_page(url, url_to_page)
             title = (page.get("title") or "") if page else ""
-            cat = (page.get("category", "Other") if page else "Other")
+            cat = (page.get("category", CAT_FALLBACK) if page else CAT_FALLBACK)
             sc = int(page.get("status_code") or 0) if page else 0
             meta = (page.get("meta_description") or "") if page else ""
             h1 = (page.get("h1") or "") if page else ""
@@ -1683,7 +1744,7 @@ def _ia_rows_from_url_tree(results: list[dict]) -> list[dict]:
                 "menu_label": label,
                 "url": matched["url"] if matched else "",
                 "title": (matched.get("title") or "") if matched else "",
-                "category": (matched.get("category", "Other") if matched else "Other"),
+                "category": (matched.get("category", CAT_FALLBACK) if matched else CAT_FALLBACK),
                 "status": int(matched.get("status_code") or 0) if matched else 0,
                 "meta_description": (matched.get("meta_description") or "") if matched else "",
                 "h1": (matched.get("h1") or "") if matched else "",
@@ -1748,7 +1809,7 @@ def generate_excel(
                 "menu_label": page.get("title") or urlparse(u).path or u,
                 "url": u,
                 "title": page.get("title") or "",
-                "category": page.get("category", "Other"),
+                "category": page.get("category", CAT_FALLBACK),
                 "status": int(page.get("status_code") or 0),
                 "meta_description": page.get("meta_description") or "",
                 "h1": page.get("h1") or "",
@@ -1854,8 +1915,9 @@ def generate_excel(
 
     cat_groups: dict[str, list[dict]] = defaultdict(list)
     for p in results:
-        cat_groups[p.get("category", "Other")].append(p)
+        cat_groups[p.get("category", CAT_FALLBACK)].append(p)
 
+    stat_palette = category_palette_map(list(cat_groups.keys()))
     total = len(results) or 1
     for row_idx, (cat, pages) in enumerate(sorted(cat_groups.items()), 2):
         ws2.cell(row=row_idx, column=1, value=_excel_safe_str(cat, max_len=200))
@@ -1868,12 +1930,13 @@ def generate_excel(
         ws2.cell(row=row_idx, column=6, value=sum(1 for p in pages if not p.get("h1")))
         ws2.cell(row=row_idx, column=7, value=sum(1 for p in pages if p.get("status_code") == 404))
 
-        cat_color = MERMAID_COLORS.get(cat, "#9E9E9E").lstrip("#")
-        ws2.cell(row=row_idx, column=1).fill = PatternFill(start_color=cat_color, end_color=cat_color, fill_type="solid")
-        if cat_color in ("FFD700", "FFA500", "87CEEB", "9E9E9E", "00BCD4"):
-            ws2.cell(row=row_idx, column=1).font = Font(color="000000", bold=True)
-        else:
-            ws2.cell(row=row_idx, column=1).font = Font(color="FFFFFF", bold=True)
+        cat_hex = stat_palette.get(cat, "#9E9E9E").lstrip("#")
+        ws2.cell(row=row_idx, column=1).fill = PatternFill(
+            start_color=cat_hex, end_color=cat_hex, fill_type="solid",
+        )
+        ws2.cell(row=row_idx, column=1).font = Font(
+            color=_excel_font_on_fill(cat_hex), bold=True,
+        )
 
     for col_idx in range(1, len(stat_headers) + 1):
         ws2.column_dimensions[get_column_letter(col_idx)].width = 22
@@ -1973,12 +2036,21 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### Legenda categorie")
-    for cat, meta in CATEGORIES.items():
-        st.markdown(
-            f'<div class="legend-item">'
-            f'<span class="legend-dot" style="background:{meta["color"]}"></span>'
-            f'{cat}</div>',
-            unsafe_allow_html=True,
+    _res = st.session_state.get("results")
+    if _res:
+        _leg_pal = category_palette_map([p.get("category", CAT_FALLBACK) for p in _res])
+        for _cat in sorted(_leg_pal.keys()):
+            _col = _leg_pal[_cat]
+            st.markdown(
+                f'<div class="legend-item">'
+                f'<span class="legend-dot" style="background:{_col}"></span>'
+                f'{_cat}</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption(
+            "Le categorie compaiono qui dopo un crawl o l’import di un rapporto: "
+            "derivano da menu e percorsi URL del sito."
         )
 
 
@@ -2027,7 +2099,7 @@ if run_crawl:
         )
 
         for page in results:
-            page["category"] = categorize_page(page, start_url)
+            page["category"] = infer_page_category(page, start_url, navigations)
 
         st.session_state.results = results
         st.session_state.errors_404 = errors_404
@@ -2046,12 +2118,13 @@ if run_crawl:
 if st.session_state.results is not None:
     results = st.session_state.results
     errors_404 = st.session_state.errors_404
+    _cat_colors_ui = category_palette_map([p.get("category", CAT_FALLBACK) for p in results])
 
     # KPI cards
     total_pages = len(results)
     total_words = sum(p.get("word_count", 0) for p in results)
     avg_words = total_words // max(total_pages, 1)
-    n_categories = len(set(p.get("category", "Other") for p in results))
+    n_categories = len(set(p.get("category", CAT_FALLBACK) for p in results))
     n_404 = len(errors_404)
 
     st.markdown('<div class="section-title">Riepilogo</div>', unsafe_allow_html=True)
@@ -2207,15 +2280,15 @@ if st.session_state.results is not None:
 
         filter_cat = st.multiselect(
             "Filtra per categoria",
-            options=sorted(set(p.get("category", "Other") for p in results)),
-            default=sorted(set(p.get("category", "Other") for p in results)),
+            options=sorted(set(p.get("category", CAT_FALLBACK) for p in results)),
+            default=sorted(set(p.get("category", CAT_FALLBACK) for p in results)),
         )
-        filtered = [p for p in results if p.get("category", "Other") in filter_cat]
+        filtered = [p for p in results if p.get("category", CAT_FALLBACK) in filter_cat]
 
         for page in filtered:
             status = page["status_code"]
-            cat = page.get("category", "Other")
-            cat_color = MERMAID_COLORS.get(cat, "#9E9E9E")
+            cat = page.get("category", CAT_FALLBACK)
+            cat_color = _cat_colors_ui.get(cat, "#9E9E9E")
 
             if status == 404:
                 status_label = "404"
@@ -2251,10 +2324,10 @@ if st.session_state.results is not None:
         st.markdown('<div class="section-title">Distribuzione per categoria</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Panoramica della composizione del sito</div>', unsafe_allow_html=True)
 
-        cat_counts = Counter(p.get("category", "Other") for p in results)
+        cat_counts = Counter(p.get("category", CAT_FALLBACK) for p in results)
         for cat, count in sorted(cat_counts.items(), key=lambda x: -x[1]):
             pct = count / max(total_pages, 1) * 100
-            color = MERMAID_COLORS.get(cat, "#9E9E9E")
+            color = _cat_colors_ui.get(cat, "#9E9E9E")
             st.markdown(
                 f'<div class="cat-row">'
                 f'<span class="cat-dot" style="background:{color}"></span>'
