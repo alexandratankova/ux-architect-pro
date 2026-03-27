@@ -2376,7 +2376,7 @@ else:
 <div class="ux-empty-hero">
   <div class="ux-empty-stack">
   <h1 class="ux-empty-title">Ciao! <span class="ux-wave-hand" role="img" aria-label="mano che saluta">👋</span></h1>
-  <h3 class="ux-empty-subtitle">Mappiamo insieme.</h3>
+  <h3 class="ux-empty-subtitle">Mappiamo insieme</h3>
   <p class="ux-empty-hint">
     Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega. 😊
   </p>
