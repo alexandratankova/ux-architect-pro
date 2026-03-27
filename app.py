@@ -673,6 +673,10 @@ def categorize_page(page_data: dict, base_url: str) -> str:
 # ─────────────────────────────────────────────
 
 CRAWL_WORKERS = 6
+# (connect, read) in seconds — many production sites (WordPress, shared hosting)
+# need >10s before the first byte; read timeout applies to the full body download.
+CRAWL_HTTP_TIMEOUT = (15, 60)
+CRAWL_FETCH_RETRIES = 2  # extra attempts after Timeout / ConnectionError
 
 
 def crawl_site(start_url: str, max_depth: int, max_pages: int,
@@ -727,7 +731,18 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
 
     def _fetch(url: str):
         """Network I/O — runs in worker threads."""
-        return session.get(url, timeout=10, allow_redirects=True)
+        last_exc: Exception | None = None
+        for attempt in range(1 + CRAWL_FETCH_RETRIES):
+            try:
+                return session.get(
+                    url, timeout=CRAWL_HTTP_TIMEOUT, allow_redirects=True,
+                )
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                last_exc = exc
+                if attempt < CRAWL_FETCH_RETRIES:
+                    time.sleep(0.6 * (attempt + 1))
+        assert last_exc is not None
+        raise last_exc
 
     def _process_response(url: str, depth: int, resp) -> BeautifulSoup | None:
         """Parse response and record page data. Runs in main thread."""
