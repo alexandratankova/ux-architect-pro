@@ -309,10 +309,30 @@ def extract_menu_hierarchy(soup: BeautifulSoup, current_url: str, base_domain: s
         u = normalize_url(urljoin(current_url, href))
         return u if is_same_domain(u, base_domain) else ""
 
+    def _is_column_wrapper(li_el) -> bool:
+        """Detect mega-menu column containers that aren't real menu items."""
+        classes = " ".join(li_el.get("class", [])).lower()
+        if any(k in classes for k in ("col", "column", "mega-col", "menu-col",
+                                       "sub-menu-column", "mega-menu-column")):
+            return True
+        a = li_el.find("a", recursive=False)
+        if not a:
+            return bool(li_el.find("ul"))
+        href = (a.get("href") or "").strip()
+        label = a.get_text(strip=True)
+        if href in ("", "#", "javascript:void(0)", "javascript:;") and not label:
+            return True
+        return False
+
     def _parse_ul(ul_el) -> list[dict]:
         items: list[dict] = []
         for li in ul_el.find_all("li", recursive=False):
-            a = li.find("a")
+            if _is_column_wrapper(li):
+                sub_ul = li.find("ul")
+                if sub_ul:
+                    items.extend(_parse_ul(sub_ul))
+                continue
+            a = li.find("a", recursive=False) or li.find("a")
             if not a:
                 continue
             label = a.get_text(strip=True)
