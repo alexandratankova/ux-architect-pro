@@ -1252,56 +1252,215 @@ def apply_share_pack(data: dict) -> None:
     st.session_state.mermaid_code = build_mermaid(results, start_url, navigations)
 
 
-def generate_excel(results: list[dict]) -> bytes:
-    """Build a multi-sheet Excel workbook."""
-    wb = openpyxl.Workbook()
+def _excel_lookup_page(url: str, url_to_page: dict[str, dict]) -> dict | None:
+    if not url:
+        return None
+    u = normalize_url(url)
+    return url_to_page.get(u) or url_to_page.get(url)
 
-    # ── Sheet 1: Full list ──
-    ws1 = wb.active
-    ws1.title = "Pagine"
-    headers = ["URL", "Status", "Categoria", "Title", "Meta Description",
-               "H1", "H2 (lista)", "Word Count", "Breadcrumbs", "Depth"]
+
+def _ia_rows_from_navigations(
+    navigations: dict[str, list[dict]], url_to_page: dict[str, dict],
+) -> list[dict]:
+    """One row per voce di menu in ordine gerarchico."""
+    rows: list[dict] = []
+
+    def walk(nav_zone: str, items: list[dict], parent_labels: list[str], level: int) -> None:
+        for item in items:
+            lab = item.get("label") or ""
+            labels = parent_labels + [lab]
+            path_str = " > ".join(labels)
+            url = (item.get("url") or "").strip()
+            page = _excel_lookup_page(url, url_to_page)
+            title = (page.get("title") or "") if page else ""
+            cat = (page.get("category", "Other") if page else "Other")
+            sc = int(page.get("status_code") or 0) if page else 0
+            meta = (page.get("meta_description") or "") if page else ""
+            h1 = (page.get("h1") or "") if page else ""
+            h2s = page.get("h2_list") or [] if page else []
+            if not isinstance(h2s, list):
+                h2s = [str(h2s)]
+            wc = int(page.get("word_count") or 0) if page else 0
+            bc = (page.get("breadcrumbs") or "") if page else ""
+            dep = int(page.get("depth") or 0) if page else 0
+            rows.append({
+                "zone": nav_zone,
+                "level": level,
+                "path": path_str,
+                "menu_label": lab,
+                "url": url,
+                "title": title,
+                "category": cat,
+                "status": sc,
+                "meta_description": meta,
+                "h1": h1,
+                "h2": "; ".join(str(x) for x in h2s),
+                "word_count": wc,
+                "breadcrumbs": bc,
+                "depth": dep,
+            })
+            ch = item.get("children") or []
+            if ch:
+                walk(nav_zone, ch, labels, level + 1)
+
+    for zone, top_items in navigations.items():
+        walk(zone, top_items, [], 0)
+    return rows
+
+
+def _ia_rows_from_url_tree(results: list[dict]) -> list[dict]:
+    """Fallback: gerarchia come nel tab Sitemap senza menu."""
+
+    def _url_path_key(u: str) -> str:
+        pp = urlparse(u)
+        pparts = [x for x in pp.path.strip("/").split("/") if x]
+        return "/".join(pparts) if pparts else "(home)"
+
+    path_to_title: dict[str, str] = {}
+    path_to_page: dict[str, dict] = {}
+    for page in results:
+        fk = _url_path_key(page["url"])
+        path_to_page[fk] = page
+        title = (page.get("title") or "").strip()
+        if title:
+            path_to_title[fk] = title
+
+    tree: dict = {}
+    for page in results:
+        fk = _url_path_key(page["url"])
+        parts = ["(home)"] if fk == "(home)" else fk.split("/")
+        node = tree
+        for part in parts:
+            if part not in node:
+                node[part] = {}
+            node = node[part]
+
+    rows: list[dict] = []
+
+    def walk_tree(node: dict, parent_labels: list[str], level: int, current_path: str) -> None:
+        for key in sorted(node.keys()):
+            full_path = f"{current_path}/{key}".strip("/") if current_path else key
+            label = path_to_title.get(full_path, key)
+            matched = path_to_page.get(full_path)
+            h2s = matched.get("h2_list") or [] if matched else []
+            if matched and not isinstance(h2s, list):
+                h2s = [str(h2s)]
+            path_str = " > ".join(parent_labels + [label])
+            rows.append({
+                "zone": "Struttura URL (fallback)",
+                "level": level,
+                "path": path_str,
+                "menu_label": label,
+                "url": matched["url"] if matched else "",
+                "title": (matched.get("title") or "") if matched else "",
+                "category": (matched.get("category", "Other") if matched else "Other"),
+                "status": int(matched.get("status_code") or 0) if matched else 0,
+                "meta_description": (matched.get("meta_description") or "") if matched else "",
+                "h1": (matched.get("h1") or "") if matched else "",
+                "h2": "; ".join(str(x) for x in h2s) if matched else "",
+                "word_count": int(matched.get("word_count") or 0) if matched else 0,
+                "breadcrumbs": (matched.get("breadcrumbs") or "") if matched else "",
+                "depth": int(matched.get("depth") or 0) if matched else 0,
+            })
+            walk_tree(node[key], parent_labels + [label], level + 1, full_path)
+
+    walk_tree(tree, [], 0, "")
+    return rows
+
+
+def generate_excel(
+    results: list[dict],
+    navigations: dict[str, list[dict]] | None = None,
+) -> bytes:
+    """Workbook con Information Architecture (ordine menu / gerarchia) + statistiche."""
+    wb = openpyxl.Workbook()
+    url_to_page = {p["url"]: p for p in results}
+
+    headers = [
+        "Zona navigazione", "Livello", "Percorso (IA)", "Voce menu",
+        "URL", "Title pagina", "Categoria", "Status",
+        "Meta description", "H1", "H2 (lista)", "Word count", "Breadcrumbs", "Depth crawl",
+    ]
     header_fill = PatternFill(start_color="1a1a2e", end_color="1a1a2e", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True, size=11)
-    thin_border = Border(
-        bottom=Side(style="thin", color="DDDDDD"),
-    )
+    thin_border = Border(bottom=Side(style="thin", color="DDDDDD"))
+
+    ws1 = wb.active
+    ws1.title = "Information Architecture"
+
     for col_idx, h in enumerate(headers, 1):
         cell = ws1.cell(row=1, column=col_idx, value=h)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
-    for row_idx, page in enumerate(results, 2):
-        ws1.cell(row=row_idx, column=1, value=_excel_safe_str(page.get("url", "")))
-        sc = int(page.get("status_code") or 0)
-        status_cell = ws1.cell(row=row_idx, column=2, value=sc)
+    ia_rows: list[dict] = []
+    if navigations:
+        ia_rows = _ia_rows_from_navigations(navigations, url_to_page)
+        in_nav = set(flatten_nav_urls(navigations))
+        home_guess = normalize_url(
+            results[0]["url"].split(urlparse(results[0]["url"]).path)[0] + "/"
+        ) if results else ""
+        for page in sorted(results, key=lambda p: p["url"]):
+            u = page["url"]
+            if u in in_nav or page.get("status_code") == 404:
+                continue
+            if home_guess and u == home_guess:
+                continue
+            h2s = page.get("h2_list") or []
+            if not isinstance(h2s, list):
+                h2s = [str(h2s)]
+            ia_rows.append({
+                "zone": "Altre pagine (non in menu)",
+                "level": 0,
+                "path": page.get("title") or u,
+                "menu_label": page.get("title") or urlparse(u).path or u,
+                "url": u,
+                "title": page.get("title") or "",
+                "category": page.get("category", "Other"),
+                "status": int(page.get("status_code") or 0),
+                "meta_description": page.get("meta_description") or "",
+                "h1": page.get("h1") or "",
+                "h2": "; ".join(str(x) for x in h2s),
+                "word_count": int(page.get("word_count") or 0),
+                "breadcrumbs": page.get("breadcrumbs") or "",
+                "depth": int(page.get("depth") or 0),
+            })
+    else:
+        ia_rows = _ia_rows_from_url_tree(results)
+
+    for row_idx, row in enumerate(ia_rows, 2):
+        ws1.cell(row=row_idx, column=1, value=_excel_safe_str(row["zone"], max_len=200))
+        ws1.cell(row=row_idx, column=2, value=int(row["level"]))
+        ws1.cell(row=row_idx, column=3, value=_excel_safe_str(row["path"]))
+        ws1.cell(row=row_idx, column=4, value=_excel_safe_str(row["menu_label"]))
+        ws1.cell(row=row_idx, column=5, value=_excel_safe_str(row["url"]))
+        ws1.cell(row=row_idx, column=6, value=_excel_safe_str(row["title"]))
+        ws1.cell(row=row_idx, column=7, value=_excel_safe_str(row["category"]))
+        sc = int(row["status"])
+        status_cell = ws1.cell(row=row_idx, column=8, value=sc)
         if sc == 404:
             status_cell.font = Font(color="CC0000", bold=True)
         elif sc >= 400:
             status_cell.font = Font(color="FF6600", bold=True)
         else:
             status_cell.font = Font(color="228B22")
-        ws1.cell(row=row_idx, column=3, value=_excel_safe_str(page.get("category", "Other")))
-        ws1.cell(row=row_idx, column=4, value=_excel_safe_str(page.get("title", "")))
-        ws1.cell(row=row_idx, column=5, value=_excel_safe_str(page.get("meta_description", "")))
-        ws1.cell(row=row_idx, column=6, value=_excel_safe_str(page.get("h1", "")))
-        h2s = page.get("h2_list") or []
-        if not isinstance(h2s, list):
-            h2s = [str(h2s)]
-        ws1.cell(row=row_idx, column=7, value=_excel_safe_str("; ".join(str(x) for x in h2s)))
-        ws1.cell(row=row_idx, column=8, value=int(page.get("word_count") or 0))
-        ws1.cell(row=row_idx, column=9, value=_excel_safe_str(page.get("breadcrumbs", "")))
-        ws1.cell(row=row_idx, column=10, value=int(page.get("depth") or 0))
+        ws1.cell(row=row_idx, column=9, value=_excel_safe_str(row["meta_description"]))
+        ws1.cell(row=row_idx, column=10, value=_excel_safe_str(row["h1"]))
+        ws1.cell(row=row_idx, column=11, value=_excel_safe_str(row["h2"]))
+        ws1.cell(row=row_idx, column=12, value=int(row["word_count"]))
+        ws1.cell(row=row_idx, column=13, value=_excel_safe_str(row["breadcrumbs"]))
+        ws1.cell(row=row_idx, column=14, value=int(row["depth"]))
         for c in range(1, len(headers) + 1):
             ws1.cell(row=row_idx, column=c).border = thin_border
 
     for col_idx in range(1, len(headers) + 1):
         max_len = max(
-            (len(str(ws1.cell(row=r, column=col_idx).value or "")) for r in range(1, min(len(results) + 2, 50))),
+            (len(str(ws1.cell(row=r, column=col_idx).value or ""))
+             for r in range(1, min(len(ia_rows) + 2, 80))),
             default=10,
         )
-        ws1.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 4, 60)
+        ws1.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 55)
 
     # ── Sheet 2: Stats by category ──
     ws2 = wb.create_sheet("Statistiche")
@@ -1486,104 +1645,10 @@ if st.session_state.results is not None:
 
     st.markdown("---")
 
-    # ── Tabs ──
-    tab_table, tab_stats, tab_mermaid, tab_sitemap, tab_export = st.tabs(
-        ["Tabella", "Statistiche", "Diagramma", "Sitemap", "Esporta"]
+    # ── Tabs (Sitemap e Diagramma per primi) ──
+    tab_sitemap, tab_mermaid, tab_table, tab_stats, tab_export = st.tabs(
+        ["Sitemap", "Diagramma", "Tabella", "Statistiche", "Esporta"]
     )
-
-    with tab_table:
-        st.markdown('<div class="section-title">Pagine analizzate</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Filtra per categoria e clicca per espandere i dettagli</div>', unsafe_allow_html=True)
-
-        filter_cat = st.multiselect(
-            "Filtra per categoria",
-            options=sorted(set(p.get("category", "Other") for p in results)),
-            default=sorted(set(p.get("category", "Other") for p in results)),
-        )
-        filtered = [p for p in results if p.get("category", "Other") in filter_cat]
-
-        for page in filtered:
-            status = page["status_code"]
-            cat = page.get("category", "Other")
-            cat_color = MERMAID_COLORS.get(cat, "#9E9E9E")
-
-            if status == 404:
-                status_label = "404"
-            elif status >= 400:
-                status_label = str(status)
-            else:
-                status_label = str(status)
-
-            title_display = page.get("title") or page["url"][:60]
-            with st.expander(f"`{status_label}` — **{title_display}**"):
-                col_a, col_b = st.columns([2, 1])
-                with col_a:
-                    st.markdown(f"**URL:** `{page['url']}`")
-                    st.markdown(f"**Title:** {page.get('title', '—')}")
-                    st.markdown(f"**H1:** {page.get('h1', '—')}")
-                    st.markdown(f"**Meta Description:** {page.get('meta_description', '—') or '—'}")
-                    if page.get("h2_list"):
-                        st.markdown("**H2:**")
-                        for h2 in page["h2_list"]:
-                            st.markdown(f"  - {h2}")
-                with col_b:
-                    st.markdown(
-                        f'<span class="category-badge" style="background:{cat_color}">'
-                        f'{cat}</span>',
-                        unsafe_allow_html=True,
-                    )
-                    st.metric("Word Count", page.get("word_count", 0))
-                    st.metric("Depth", page.get("depth", 0))
-                    if page.get("breadcrumbs"):
-                        st.markdown(f"**Breadcrumbs:** {page['breadcrumbs']}")
-
-    with tab_stats:
-        st.markdown('<div class="section-title">Distribuzione per categoria</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Panoramica della composizione del sito</div>', unsafe_allow_html=True)
-
-        cat_counts = Counter(p.get("category", "Other") for p in results)
-        for cat, count in sorted(cat_counts.items(), key=lambda x: -x[1]):
-            pct = count / max(total_pages, 1) * 100
-            color = MERMAID_COLORS.get(cat, "#9E9E9E")
-            st.markdown(
-                f'<div class="cat-row">'
-                f'<span class="cat-dot" style="background:{color}"></span>'
-                f'<span class="cat-label">{cat}</span>'
-                f'<span class="cat-meta">{count} pagine ({pct:.1f}%)</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            st.progress(pct / 100)
-
-        st.markdown("---")
-        st.markdown('<div class="section-title">Dettagli per categoria</div>', unsafe_allow_html=True)
-        for cat in sorted(cat_counts.keys()):
-            pages_in_cat = [p for p in results if p.get("category") == cat]
-            n = len(pages_in_cat)
-            avg_w = sum(p.get("word_count", 0) for p in pages_in_cat) // max(n, 1)
-            no_h1 = sum(1 for p in pages_in_cat if not p.get("h1"))
-            no_meta = sum(1 for p in pages_in_cat if not p.get("meta_description"))
-            e404 = sum(1 for p in pages_in_cat if p.get("status_code") == 404)
-
-            with st.expander(f"{cat} — {n} pagine"):
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Pagine", n)
-                m2.metric("Word Count medio", avg_w)
-                m3.metric("Senza H1", no_h1)
-                m4.metric("Senza Meta Desc", no_meta)
-                if e404:
-                    st.error(f"{e404} pagine con errore 404 in questa categoria")
-
-    with tab_mermaid:
-        st.markdown('<div class="section-title">Diagramma gerarchico</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-subtitle">Struttura del sito con layout orizzontale. Usa lo scroll per navigare e il bottone in alto a destra per scaricare come JPEG.</div>', unsafe_allow_html=True)
-
-        mermaid_code = st.session_state.mermaid_code
-        diagram_html = render_mermaid_html(mermaid_code, height=650, show_download=True)
-        components.html(diagram_html, height=650, scrolling=True)
-
-        with st.expander("Mostra codice Mermaid"):
-            st.code(mermaid_code, language="mermaid")
 
     with tab_sitemap:
         st.markdown('<div class="section-title">Information Architecture</div>', unsafe_allow_html=True)
@@ -1692,6 +1757,100 @@ if st.session_state.results is not None:
             tree_text += "\n".join(render_tree(tree))
             st.code(tree_text, language=None)
 
+    with tab_mermaid:
+        st.markdown('<div class="section-title">Diagramma gerarchico</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">Struttura del sito con layout orizzontale. Usa lo scroll per navigare e il bottone in alto a destra per scaricare come JPEG.</div>', unsafe_allow_html=True)
+
+        mermaid_code = st.session_state.mermaid_code
+        diagram_html = render_mermaid_html(mermaid_code, height=650, show_download=True)
+        components.html(diagram_html, height=650, scrolling=True)
+
+        with st.expander("Mostra codice Mermaid"):
+            st.code(mermaid_code, language="mermaid")
+
+    with tab_table:
+        st.markdown('<div class="section-title">Pagine analizzate</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">Filtra per categoria e clicca per espandere i dettagli</div>', unsafe_allow_html=True)
+
+        filter_cat = st.multiselect(
+            "Filtra per categoria",
+            options=sorted(set(p.get("category", "Other") for p in results)),
+            default=sorted(set(p.get("category", "Other") for p in results)),
+        )
+        filtered = [p for p in results if p.get("category", "Other") in filter_cat]
+
+        for page in filtered:
+            status = page["status_code"]
+            cat = page.get("category", "Other")
+            cat_color = MERMAID_COLORS.get(cat, "#9E9E9E")
+
+            if status == 404:
+                status_label = "404"
+            elif status >= 400:
+                status_label = str(status)
+            else:
+                status_label = str(status)
+
+            title_display = page.get("title") or page["url"][:60]
+            with st.expander(f"`{status_label}` — **{title_display}**"):
+                col_a, col_b = st.columns([2, 1])
+                with col_a:
+                    st.markdown(f"**URL:** `{page['url']}`")
+                    st.markdown(f"**Title:** {page.get('title', '—')}")
+                    st.markdown(f"**H1:** {page.get('h1', '—')}")
+                    st.markdown(f"**Meta Description:** {page.get('meta_description', '—') or '—'}")
+                    if page.get("h2_list"):
+                        st.markdown("**H2:**")
+                        for h2 in page["h2_list"]:
+                            st.markdown(f"  - {h2}")
+                with col_b:
+                    st.markdown(
+                        f'<span class="category-badge" style="background:{cat_color}">'
+                        f'{cat}</span>',
+                        unsafe_allow_html=True,
+                    )
+                    st.metric("Word Count", page.get("word_count", 0))
+                    st.metric("Depth", page.get("depth", 0))
+                    if page.get("breadcrumbs"):
+                        st.markdown(f"**Breadcrumbs:** {page['breadcrumbs']}")
+
+    with tab_stats:
+        st.markdown('<div class="section-title">Distribuzione per categoria</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-subtitle">Panoramica della composizione del sito</div>', unsafe_allow_html=True)
+
+        cat_counts = Counter(p.get("category", "Other") for p in results)
+        for cat, count in sorted(cat_counts.items(), key=lambda x: -x[1]):
+            pct = count / max(total_pages, 1) * 100
+            color = MERMAID_COLORS.get(cat, "#9E9E9E")
+            st.markdown(
+                f'<div class="cat-row">'
+                f'<span class="cat-dot" style="background:{color}"></span>'
+                f'<span class="cat-label">{cat}</span>'
+                f'<span class="cat-meta">{count} pagine ({pct:.1f}%)</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            st.progress(pct / 100)
+
+        st.markdown("---")
+        st.markdown('<div class="section-title">Dettagli per categoria</div>', unsafe_allow_html=True)
+        for cat in sorted(cat_counts.keys()):
+            pages_in_cat = [p for p in results if p.get("category") == cat]
+            n = len(pages_in_cat)
+            avg_w = sum(p.get("word_count", 0) for p in pages_in_cat) // max(n, 1)
+            no_h1 = sum(1 for p in pages_in_cat if not p.get("h1"))
+            no_meta = sum(1 for p in pages_in_cat if not p.get("meta_description"))
+            e404 = sum(1 for p in pages_in_cat if p.get("status_code") == 404)
+
+            with st.expander(f"{cat} — {n} pagine"):
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Pagine", n)
+                m2.metric("Word Count medio", avg_w)
+                m3.metric("Senza H1", no_h1)
+                m4.metric("Senza Meta Desc", no_meta)
+                if e404:
+                    st.error(f"{e404} pagine con errore 404 in questa categoria")
+
     with tab_export:
         st.markdown('<div class="section-title">Esportazione dati</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-subtitle">Scarica i risultati nei formati disponibili</div>', unsafe_allow_html=True)
@@ -1738,10 +1897,13 @@ if st.session_state.results is not None:
         col_xl, col_mmd = st.columns(2)
 
         with col_xl:
-            st.markdown("**Excel multi-foglio**")
-            st.caption("Foglio 1: lista completa  |  Foglio 2: statistiche per categoria")
+            st.markdown("**Excel — Information Architecture**")
+            st.caption(
+                "Foglio 1: **Information Architecture** (ordine menu / gerarchia, zone navigazione, percorsi). "
+                "Foglio 2: statistiche per categoria."
+            )
             try:
-                _excel_bytes = generate_excel(results)
+                _excel_bytes = generate_excel(results, st.session_state.navigations)
             except Exception as _xlsx_exc:
                 _excel_bytes = b""
                 st.error(f"Errore durante la creazione del file Excel: {_xlsx_exc}")
@@ -1749,7 +1911,7 @@ if st.session_state.results is not None:
                 st.download_button(
                     "Scarica Excel",
                     data=_excel_bytes,
-                    file_name="ux_architect_pro_report.xlsx",
+                    file_name="ux_architect_pro_information_architecture.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key="dl_excel",
