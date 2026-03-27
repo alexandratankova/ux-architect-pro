@@ -291,8 +291,35 @@ st.markdown("""
         font-weight: 800;
         font-size: 1.55rem;
         letter-spacing: -0.35px;
-        margin: 0 0 1rem 0;
+        margin: 0 0 0.4rem 0;
         line-height: 1.4;
+        text-align: center;
+        width: 100%;
+        max-width: 520px;
+    }
+    .ux-wave-hand {
+        display: inline-block;
+        animation: uxHandWave 2.2s ease-in-out infinite;
+        transform-origin: 72% 85%;
+    }
+    @keyframes uxHandWave {
+        0%, 100% { transform: rotate(0deg); }
+        20% { transform: rotate(16deg); }
+        40% { transform: rotate(-10deg); }
+        60% { transform: rotate(14deg); }
+        80% { transform: rotate(-6deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .ux-wave-hand { animation: none; }
+    }
+    .ux-empty-subtitle {
+        margin: 0 0 1rem 0;
+        padding: 0;
+        font-size: 1.12rem;
+        font-weight: 700;
+        letter-spacing: -0.2px;
+        color: #374151;
+        line-height: 1.35;
         text-align: center;
         width: 100%;
         max-width: 520px;
@@ -2348,7 +2375,8 @@ else:
     st.markdown("""
 <div class="ux-empty-hero">
   <div class="ux-empty-stack">
-  <h1 class="ux-empty-title">Ciao! 👋<br/>Mappiamo insieme.</h1>
+  <h1 class="ux-empty-title">Ciao! <span class="ux-wave-hand" role="img" aria-label="mano che saluta">👋</span></h1>
+  <h3 class="ux-empty-subtitle">Mappiamo insieme.</h3>
   <p class="ux-empty-hint">
     Inserisci un URL per un nuovo crawl oppure carica un rapporto .json che ti ha girato un tuo collega. 😊
   </p>
