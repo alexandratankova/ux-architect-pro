@@ -199,21 +199,20 @@ st.markdown("""
     .sitemap-row {
         display: block;
         padding: 3px 14px;
-        border-left: 4px solid transparent;
         margin: 0;
         white-space: pre;
         font-family: inherit;
     }
     .sitemap-line { display: inline; }
-    .sitemap-row.smap-d0 { border-left-color: #1e293b; font-weight: 600; color: #0f172a; }
-    .sitemap-row.smap-d1 { border-left-color: #475569; color: #1e293b; }
-    .sitemap-row.smap-d2 { border-left-color: #64748b; color: #334155; }
-    .sitemap-row.smap-d3 { border-left-color: #94a3b8; color: #475569; font-size: 0.92em; }
-    .sitemap-row.smap-d4 { border-left-color: #cbd5e1; color: #64748b; font-size: 0.9em; }
-    .sitemap-row.smap-d5 { border-left-color: #e2e8f0; color: #64748b; font-size: 0.88em; }
-    .sitemap-row.smap-d6 { border-left-color: #e2e8f0; color: #64748b; font-size: 0.87em; }
+    .sitemap-row.smap-d0 { font-weight: 600; color: #0f172a; }
+    .sitemap-row.smap-d1 { color: #1e293b; }
+    .sitemap-row.smap-d2 { color: #334155; }
+    .sitemap-row.smap-d3 { color: #475569; font-size: 0.92em; }
+    .sitemap-row.smap-d4 { color: #64748b; font-size: 0.9em; }
+    .sitemap-row.smap-d5 { color: #64748b; font-size: 0.88em; }
+    .sitemap-row.smap-d6 { color: #64748b; font-size: 0.87em; }
     .sitemap-row.smap-d7,
-    .sitemap-row.smap-d8 { border-left-color: #e2e8f0; color: #64748b; font-size: 0.85em; }
+    .sitemap-row.smap-d8 { color: #64748b; font-size: 0.85em; }
 
     .section-title {
         font-size: 1.15rem;
@@ -2306,7 +2305,7 @@ if st.session_state.results is not None:
             st.markdown(
                 '<div class="section-subtitle">'
                 "Struttura delle navigazioni estratte dal sito. "
-                "Ogni livello ha un bordo colorato a sinistra e un peso del testo diverso."
+                "Ogni livello ha peso e dimensione del testo leggermente diversi in base alla profondità."
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -2343,7 +2342,7 @@ if st.session_state.results is not None:
             st.markdown(
                 '<div class="section-subtitle">'
                 "Struttura gerarchica basata sui percorsi URL. "
-                "La profondità del percorso è evidenziata sulle righe (bordo e intensità del testo)."
+                "La profondità del percorso è evidenziata con intensità e dimensione del testo."
                 '</div>',
                 unsafe_allow_html=True,
             )
