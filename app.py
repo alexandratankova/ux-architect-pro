@@ -672,16 +672,26 @@ def categorize_page(page_data: dict, base_url: str) -> str:
 # Crawler
 # ─────────────────────────────────────────────
 
+CRAWL_WORKERS = 6
+
+
 def crawl_site(start_url: str, max_depth: int, max_pages: int,
                progress_bar, log_container, status_text):
-    """Priority crawler: nav menu first, then sitemap, then secondary links."""
+    """Priority crawler with concurrent fetching.
+
+    Uses a ThreadPoolExecutor to fetch pages in batches of CRAWL_WORKERS,
+    drastically reducing wall-clock time compared to sequential requests.
+    """
+    from collections import deque
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     parsed_start = urlparse(start_url)
     base_domain = parsed_start.netloc
     start_url = normalize_url(start_url)
 
     visited: set[str] = set()
-    priority_queue: list[tuple[str, int]] = []
-    secondary_queue: list[tuple[str, int]] = []
+    priority_queue: deque[tuple[str, int]] = deque()
+    secondary_queue: deque[tuple[str, int]] = deque()
     results: list[dict] = []
     errors_404: list[str] = []
     log_lines: list[str] = []
@@ -693,6 +703,12 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
         "Accept": "text/html,application/xhtml+xml",
         "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
     })
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=CRAWL_WORKERS,
+        pool_maxsize=CRAWL_WORKERS * 2,
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
 
     def add_log(msg: str, level: str = "info"):
         icons = {"info": "🔍", "ok": "✅", "err": "🔴", "warn": "⚠️"}
@@ -709,53 +725,98 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
             f"Errori 404: {len(errors_404)}"
         )
 
-    def process_page(url: str, depth: int) -> BeautifulSoup | None:
-        """Fetch and record a single page. Returns soup if HTML, else None."""
+    def _fetch(url: str):
+        """Network I/O — runs in worker threads."""
+        return session.get(url, timeout=10, allow_redirects=True)
+
+    def _process_response(url: str, depth: int, resp) -> BeautifulSoup | None:
+        """Parse response and record page data. Runs in main thread."""
+        if resp.status_code == 404:
+            errors_404.append(url)
+            add_log(f"<b>404</b>: {url}", "err")
+            results.append({
+                "url": url, "status_code": 404, "title": "", "meta_description": "",
+                "og_type": "", "h1": "", "h2_list": [], "word_count": 0,
+                "breadcrumbs": "", "_html": "", "depth": depth,
+            })
+            update_ui()
+            return None
+
+        if resp.status_code >= 400:
+            add_log(f"HTTP {resp.status_code}: {url}", "warn")
+            return None
+
+        content_type = resp.headers.get("Content-Type", "")
+        if "text/html" not in content_type:
+            return None
+
+        soup = BeautifulSoup(resp.text, "lxml")
+        page_data = extract_page_data(url, resp, soup)
+        page_data["_html"] = resp.text[:30_000]
+        page_data["depth"] = depth
+        page_data["is_nav"] = url in nav_urls
+        results.append(page_data)
+
+        title_preview = page_data["title"][:60] or "(no title)"
+        tag = " [menu]" if url in nav_urls else ""
+        add_log(f"OK — <b>{title_preview}</b>{tag}", "ok")
+        update_ui()
+        return soup
+
+    def _drain_queue(queue: deque, add_to_secondary: bool = False):
+        """Fetch pages from queue concurrently in batches."""
+        with ThreadPoolExecutor(max_workers=CRAWL_WORKERS) as pool:
+            while queue and len(results) < max_pages:
+                batch: list[tuple[str, int]] = []
+                while queue and len(batch) < CRAWL_WORKERS:
+                    url, depth = queue.popleft()
+                    if url in visited or depth > max_depth or len(results) >= max_pages:
+                        continue
+                    visited.add(url)
+                    batch.append((url, depth))
+
+                if not batch:
+                    break
+
+                future_map = {
+                    pool.submit(_fetch, url): (url, depth)
+                    for url, depth in batch
+                }
+
+                for future in as_completed(future_map):
+                    if len(results) >= max_pages:
+                        break
+                    url, depth = future_map[future]
+                    try:
+                        resp = future.result()
+                    except requests.RequestException as exc:
+                        add_log(f"Errore di rete: {url} — {exc}", "err")
+                        continue
+                    except Exception as exc:
+                        add_log(f"Errore: {url} — {exc}", "err")
+                        continue
+
+                    soup = _process_response(url, depth, resp)
+                    if soup and depth < max_depth:
+                        new_links = extract_all_links(soup, url, base_domain)
+                        if add_to_secondary:
+                            for link in new_links:
+                                if link not in visited:
+                                    secondary_queue.append((link, depth + 1))
+                        else:
+                            for link in new_links:
+                                if link not in visited:
+                                    queue.append((link, depth + 1))
+
+    def _process_single(url: str, depth: int) -> BeautifulSoup | None:
+        """Fetch and process one page synchronously (used for homepage)."""
         if url in visited or len(results) >= max_pages:
             return None
         visited.add(url)
-
         try:
             add_log(f"[depth {depth}] {url}")
-            resp = session.get(url, timeout=15, allow_redirects=True)
-
-            if resp.status_code == 404:
-                errors_404.append(url)
-                add_log(f"<b>404</b>: {url}", "err")
-                results.append({
-                    "url": url, "status_code": 404, "title": "", "meta_description": "",
-                    "og_type": "", "h1": "", "h2_list": [], "word_count": 0,
-                    "breadcrumbs": "", "_html": "", "depth": depth,
-                })
-                update_ui()
-                return None
-
-            if resp.status_code >= 400:
-                add_log(f"HTTP {resp.status_code}: {url}", "warn")
-                return None
-
-            content_type = resp.headers.get("Content-Type", "")
-            if "text/html" not in content_type:
-                return None
-
-            soup = BeautifulSoup(resp.text, "lxml")
-            page_data = extract_page_data(url, resp, soup)
-            page_data["_html"] = resp.text[:50_000]
-            page_data["depth"] = depth
-            page_data["is_nav"] = url in nav_urls
-            results.append(page_data)
-
-            title_preview = page_data["title"][:60] or "(no title)"
-            source = "nav" if url in nav_urls else ""
-            if source:
-                add_log(f"OK — <b>{title_preview}</b> [menu]", "ok")
-            else:
-                add_log(f"OK — <b>{title_preview}</b>", "ok")
-
-            update_ui()
-            time.sleep(0.12)
-            return soup
-
+            resp = _fetch(url)
+            return _process_response(url, depth, resp)
         except requests.RequestException as exc:
             add_log(f"Errore di rete: {url} — {exc}", "err")
         except Exception as exc:
@@ -768,7 +829,7 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
     add_log(f"Avvio crawl di <b>{start_url}</b>")
     add_log("Fase 1 — Analisi homepage e strutture di navigazione", "info")
 
-    home_soup = process_page(start_url, 0)
+    home_soup = _process_single(start_url, 0)
 
     if home_soup:
         navigations = extract_navigations(home_soup, start_url, base_domain)
@@ -815,35 +876,14 @@ def crawl_site(start_url: str, max_depth: int, max_pages: int,
     else:
         add_log("Nessuna sitemap trovata", "warn")
 
-    # ── Phase 3: Crawl priority queue (nav links) first ──
+    # ── Phase 3: Crawl priority queue (nav links) — concurrent ──
     add_log("Fase 3 — Scansione voci di navigazione", "info")
+    _drain_queue(priority_queue, add_to_secondary=True)
 
-    while priority_queue and len(results) < max_pages:
-        url, depth = priority_queue.pop(0)
-        soup = process_page(url, depth)
-        if soup and depth < max_depth:
-            sub_nav = extract_nav_links(soup, url, base_domain)
-            page_links = extract_all_links(soup, url, base_domain)
-            for link in sub_nav:
-                if link not in visited:
-                    priority_queue.append((link, depth + 1))
-            for link in page_links:
-                if link not in visited and link not in nav_urls:
-                    secondary_queue.append((link, depth + 1))
-
-    # ── Phase 4: Crawl secondary queue (sitemap + other links) ──
+    # ── Phase 4: Crawl secondary queue — concurrent ──
     if len(results) < max_pages and secondary_queue:
         add_log("Fase 4 — Scansione pagine secondarie e sitemap", "info")
-
-    while secondary_queue and len(results) < max_pages:
-        url, depth = secondary_queue.pop(0)
-        if depth > max_depth:
-            continue
-        soup = process_page(url, depth)
-        if soup and depth < max_depth:
-            for link in extract_all_links(soup, url, base_domain):
-                if link not in visited:
-                    secondary_queue.append((link, depth + 1))
+    _drain_queue(secondary_queue, add_to_secondary=False)
 
     add_log(f"Crawl completato — <b>{len(results)}</b> pagine analizzate", "ok")
     progress_bar.progress(1.0, text="Crawl completato!")
